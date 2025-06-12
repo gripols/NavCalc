@@ -2,84 +2,96 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import math
-from collections import defaultdict, deque, namedtuple
+from collections import namedtuple
 from typing import List, Tuple, Set, Dict, Optional, Callable, Iterator
 from functools import reduce, partial
 from itertools import chain, product
 import operator
 
-# data structs
-Position   = namedtuple('Position', ['row', 'column'])
-Ship       = namedtuple('Ship', ['length', 'count'])
-GameState  = namedtuple('GameState', ['grid', 'ships', 'grid_size'])
+# Core data structures (immutable-like)
+Position = namedtuple('Position', ['row', 'col'])
+Ship = namedtuple('Ship', ['length', 'count'])
+GameState = namedtuple('GameState', ['grid', 'ships', 'grid_size'])
 ShotResult = namedtuple('ShotResult', ['position', 'outcome'])
 
+# Grid cell states
 UNKNOWN, MISS, HIT, SUNK = 0, 1, 2, 3
 
-DEFAULT_GRID_SIZE    = 10
-DEFAULT_SHIPS        = {4: 1, 3: 2, 2: 3, 1: 4}
+# Configuration constants
+DEFAULT_GRID_SIZE = 10
+DEFAULT_SHIPS = {4: 1, 3: 2, 2: 3, 1: 4}
 EXHAUSTIVE_THRESHOLD = 1000000
 
-# pure funcs for basic ops
+# Pure functions for basic operations
 def create_empty_grid(size: int) -> np.ndarray:
-    return np.zeros((size, size), dtype = int)
+    return np.zeros((size, size), dtype=int)
 
-def valid_position(pos: Position, grid_size: int) -> bool:
-    return 0 <= pos.row < grid_size and 0 <= pos.column < grid_size
+def is_valid_position(pos: Position, grid_size: int) -> bool:
+    return 0 <= pos.row < grid_size and 0 <= pos.col < grid_size
 
-def create_initial_state(grid_size: int = DEFAULT_GRID_SIZE, ships: Dict[int, int] = None) -> GameState:
+def create_initial_state(grid_size: int = DEFAULT_GRID_SIZE, 
+                        ships: Dict[int, int] = None) -> GameState:
     ships = ships or DEFAULT_SHIPS.copy()
-    return GameState(grid = create_empty_grid(grid_size), ships = ships, grid_size = grid_size)
+    return GameState(
+        grid=create_empty_grid(grid_size),
+        ships=ships,
+        grid_size=grid_size
+    )
 
-# ship place utils
+# Ship placement utilities
 def get_ship_positions(start: Position, length: int, vertical: bool) -> List[Position]:
     if vertical:
-        return [Position(start.row + i, start.column) for i in range(length)]
+        return [Position(start.row + i, start.col) for i in range(length)]
     else:
-        return [Position(start.row, start.column + i) for i in range(length)]
-    
+        return [Position(start.row, start.col + i) for i in range(length)]
+
 def get_adjacent_positions(positions: List[Position], grid_size: int) -> Set[Position]:
     position_set = set(positions)
     adjacent = set()
     
     for pos in positions:
-        for dr, dc in [(-1, -1), (-1, 0), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]:
-            adj_pos = Position(pos.row + dr, pos.column + dc)
-            if (valid_position(adj_pos, grid_size) and 
+        for dr, dc in [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]:
+            adj_pos = Position(pos.row + dr, pos.col + dc)
+            if (is_valid_position(adj_pos, grid_size) and 
                 adj_pos not in position_set):
                 adjacent.add(adj_pos)
-
+    
     return adjacent
 
 def can_place_ship(state: GameState, start: Position, length: int, vertical: bool) -> bool:
-    
     ship_positions = get_ship_positions(start, length, vertical)
-
-    # quick bounds check
-    if not all (valid_position(pos, state.grid_size) for pos in ship_positions):
+    
+    # Check bounds
+    if not all(is_valid_position(pos, state.grid_size) for pos in ship_positions):
         return False
-        
-    # check ship pos's are available
+    
+    # Check ship positions are available
     for pos in ship_positions:
-        if state.grid[pos.row, pos.column] in [MISS, SUNK]:
+        if state.grid[pos.row, pos.col] in [MISS, SUNK]:
             return False
     
-    # adj constraint
+    # Check adjacency constraint
     adjacent_positions = get_adjacent_positions(ship_positions, state.grid_size)
     for pos in adjacent_positions:
-        if state.grid[pos.row, pos.column] in [HIT, SUNK]:
+        if state.grid[pos.row, pos.col] in [HIT, SUNK]:
             return False
-        
+    
     return True
-        
+
+def place_ship_on_grid(grid: np.ndarray, positions: List[Position]) -> np.ndarray:
+    new_grid = grid.copy()
+    for pos in positions:
+        new_grid[pos.row, pos.col] = HIT
+    return new_grid
+
 def mark_adjacent_as_blocked(grid: np.ndarray, positions: List[Position], 
                            grid_size: int) -> np.ndarray:
     new_grid = grid.copy()
     adjacent = get_adjacent_positions(positions, grid_size)
     
     for pos in adjacent:
-        if new_grid[pos.row, pos.column] == UNKNOWN:
-            new_grid[pos.row, pos.column] = MISS
+        if new_grid[pos.row, pos.col] == UNKNOWN:
+            new_grid[pos.row, pos.col] = MISS
     
     return new_grid
 
@@ -88,8 +100,8 @@ def find_connected_positions(state: GameState, start: Position,
                            target_states: Set[int]) -> List[Position]:
     def get_neighbors(pos: Position) -> Iterator[Position]:
         for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-            neighbor = Position(pos.row + dr, pos.column + dc)
-            if valid_position(neighbor, state.grid_size):
+            neighbor = Position(pos.row + dr, pos.col + dc)
+            if is_valid_position(neighbor, state.grid_size):
                 yield neighbor
     
     def expand_segment(visited: Set[Position], frontier: List[Position]) -> Set[Position]:
@@ -99,7 +111,7 @@ def find_connected_positions(state: GameState, start: Position,
         current = frontier[0]
         remaining_frontier = frontier[1:]
         
-        if current in visited or state.grid[current.row, current.column] not in target_states:
+        if current in visited or state.grid[current.row, current.col] not in target_states:
             return expand_segment(visited, remaining_frontier)
         
         new_visited = visited | {current}
@@ -114,9 +126,9 @@ def find_all_hit_segments(state: GameState) -> List[List[Position]]:
     segments = []
     
     for row in range(state.grid_size):
-        for column in range(state.grid_size):
-            pos = Position(row, column)
-            if (state.grid[row, column] == HIT and pos not in visited):
+        for col in range(state.grid_size):
+            pos = Position(row, col)
+            if (state.grid[row, col] == HIT and pos not in visited):
                 segment = find_connected_positions(state, pos, {HIT})
                 if segment:
                     segments.append(segment)
@@ -127,9 +139,9 @@ def find_all_hit_segments(state: GameState) -> List[List[Position]]:
 # Probability calculation functions
 def generate_all_ship_placements(state: GameState, ship_length: int) -> Iterator[List[Position]]:
     for row in range(state.grid_size):
-        for column in range(state.grid_size):
+        for col in range(state.grid_size):
             for vertical in [False, True]:
-                start = Position(row, column)
+                start = Position(row, col)
                 if can_place_ship(state, start, ship_length, vertical):
                     yield get_ship_positions(start, ship_length, vertical)
 
@@ -142,11 +154,11 @@ def calculate_placement_weight(positions: List[Position], hit_segments: List[Lis
         overlap = position_set & segment_set
         
         if segment_set.issubset(position_set):
-            weight *= 10.0  # complete explanation
+            weight *= 10.0  # Complete explanation
         elif overlap:
-            weight *= 2.0   # partial explanation
+            weight *= 2.0   # Partial explanation
     
-    # penalty for not explaining hits when they exist
+    # Penalty for not explaining hits when they exist
     if hit_segments and not any(position_set & set(seg) for seg in hit_segments):
         weight *= 0.1
     
@@ -167,7 +179,7 @@ def compute_probability_grid_heuristic(state: GameState) -> np.ndarray:
             weight = calculate_placement_weight(positions, hit_segments) * ship_count
             
             for pos in positions:
-                prob_grid[pos.row, pos.column] += weight
+                prob_grid[pos.row, pos.col] += weight
             
             total_weight += weight
     
@@ -206,9 +218,9 @@ def get_segment_extensions(segment: List[Position], state: GameState) -> List[Po
         extensions = []
         
         for dr, dc in directions:
-            ext_pos = Position(pos.row + dr, pos.column + dc)
-            if (valid_position(ext_pos, state.grid_size) and 
-                state.grid[ext_pos.row, ext_pos.column] == UNKNOWN):
+            ext_pos = Position(pos.row + dr, pos.col + dc)
+            if (is_valid_position(ext_pos, state.grid_size) and 
+                state.grid[ext_pos.row, ext_pos.col] == UNKNOWN):
                 extensions.append(ext_pos)
         
         return extensions
@@ -220,28 +232,28 @@ def get_segment_extensions(segment: List[Position], state: GameState) -> List[Po
     if sorted_segment[0].row == sorted_segment[1].row:
         # Horizontal
         row = sorted_segment[0].row
-        cols = [pos.column for pos in sorted_segment]
+        cols = [pos.col for pos in sorted_segment]
         min_col, max_col = min(cols), max(cols)
         
         extensions = []
-        for column in [min_col - 1, max_col + 1]:
-            ext_pos = Position(row, column)
-            if (valid_position(ext_pos, state.grid_size) and 
-                state.grid[ext_pos.row, ext_pos.column] == UNKNOWN):
+        for col in [min_col - 1, max_col + 1]:
+            ext_pos = Position(row, col)
+            if (is_valid_position(ext_pos, state.grid_size) and 
+                state.grid[ext_pos.row, ext_pos.col] == UNKNOWN):
                 extensions.append(ext_pos)
         
         return extensions
     else:
         # Vertical
-        column = sorted_segment[0].column
+        col = sorted_segment[0].col
         rows = [pos.row for pos in sorted_segment]
         min_row, max_row = min(rows), max(rows)
         
         extensions = []
         for row in [min_row - 1, max_row + 1]:
-            ext_pos = Position(row, column)
-            if (valid_position(ext_pos, state.grid_size) and 
-                state.grid[ext_pos.row, ext_pos.column] == UNKNOWN):
+            ext_pos = Position(row, col)
+            if (is_valid_position(ext_pos, state.grid_size) and 
+                state.grid[ext_pos.row, ext_pos.col] == UNKNOWN):
                 extensions.append(ext_pos)
         
         return extensions
@@ -283,11 +295,11 @@ def update_cell(state: GameState, pos: Position, result: str) -> GameState:
     new_grid = state.grid.copy()
     
     if result == 'hit':
-        new_grid[pos.row, pos.column] = HIT
+        new_grid[pos.row, pos.col] = HIT
     elif result == 'miss':
-        new_grid[pos.row, pos.column] = MISS
+        new_grid[pos.row, pos.col] = MISS
     elif result == 'sunk':
-        new_grid[pos.row, pos.column] = SUNK
+        new_grid[pos.row, pos.col] = SUNK
         new_grid, updated_ships = handle_sunk_ship(new_grid, pos, state.ships, state.grid_size)
         return GameState(new_grid, updated_ships, state.grid_size)
     
@@ -303,7 +315,7 @@ def handle_sunk_ship(grid: np.ndarray, sunk_pos: Position, ships: Dict[int, int]
     # Update grid
     new_grid = grid.copy()
     for pos in ship_positions:
-        new_grid[pos.row, pos.column] = SUNK
+        new_grid[pos.row, pos.col] = SUNK
     
     # Mark adjacent cells as misses
     new_grid = mark_adjacent_as_blocked(new_grid, ship_positions, grid_size)
@@ -323,9 +335,9 @@ def validate_game_state(state: GameState) -> List[str]:
     # Find all ship segments
     all_positions = []
     for row in range(state.grid_size):
-        for column in range(state.grid_size):
-            if state.grid[row, column] in [HIT, SUNK]:
-                all_positions.append(Position(row, column))
+        for col in range(state.grid_size):
+            if state.grid[row, col] in [HIT, SUNK]:
+                all_positions.append(Position(row, col))
     
     # Group into segments
     segments = []
@@ -348,13 +360,13 @@ def validate_game_state(state: GameState) -> List[str]:
             for pos1 in ship1:
                 adjacent = get_adjacent_positions([pos1], state.grid_size)
                 if adjacent & ship2_set:
-                    errors.append(f"ships are adjacent: {format_positions(ship1)} and {format_positions(ship2)}")
+                    errors.append(f"Ships are adjacent: {format_positions(ship1)} and {format_positions(ship2)}")
                     break
     
     # Check ship shapes
     for segment in segments:
         if len(segment) > 1 and not is_straight_line(segment):
-            errors.append(f"ship is not straight: {format_positions(segment)}")
+            errors.append(f"Ship is not straight: {format_positions(segment)}")
     
     return errors
 
@@ -366,11 +378,11 @@ def is_straight_line(positions: List[Position]) -> bool:
     
     # Check horizontal
     if all(pos.row == sorted_pos[0].row for pos in sorted_pos):
-        cols = [pos.column for pos in sorted_pos]
+        cols = [pos.col for pos in sorted_pos]
         return all(cols[i] == cols[i-1] + 1 for i in range(1, len(cols)))
     
     # Check vertical
-    if all(pos.column == sorted_pos[0].column for pos in sorted_pos):
+    if all(pos.col == sorted_pos[0].col for pos in sorted_pos):
         rows = [pos.row for pos in sorted_pos]
         return all(rows[i] == rows[i-1] + 1 for i in range(1, len(rows)))
     
@@ -378,27 +390,27 @@ def is_straight_line(positions: List[Position]) -> bool:
 
 # Utility functions
 def format_positions(positions: List[Position]) -> str:
-    return ", ".join(f"{chr(ord('A') + pos.column)}{pos.row + 1}" 
+    return ", ".join(f"{chr(ord('A') + pos.col)}{pos.row + 1}" 
                     for pos in sorted(positions))
 
 def parse_position(pos_str: str) -> Position:
     pos_str = pos_str.strip().upper()
     if len(pos_str) < 2:
-        raise ValueError("position must be at least 2 chars")
+        raise ValueError("Position must be at least 2 characters")
     
     col_char = pos_str[0]
     row_str = pos_str[1:]
     
     if not col_char.isalpha() or not row_str.isdigit():
-        raise ValueError("invalid position format")
+        raise ValueError("Invalid position format")
     
-    column = ord(col_char) - ord('A')
+    col = ord(col_char) - ord('A')
     row = int(row_str) - 1
     
-    if not (0 <= column < 10 and 0 <= row < 10):
-        raise ValueError("position out of bounds")
+    if not (0 <= col < 10 and 0 <= row < 10):
+        raise ValueError("Position out of bounds")
     
-    return Position(row, column)
+    return Position(row, col)
 
 def is_game_complete(state: GameState) -> bool:
     return sum(state.ships.values()) == 0
@@ -408,32 +420,32 @@ def get_remaining_ship_count(state: GameState) -> int:
 
 # Display functions
 def print_grid(state: GameState) -> None:
-    symbols = {UNKNOWN: '.', MISS: 'o', HIT: 'x', SUNK: 's'}
+    symbols = {UNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'}
     
-    print("\n   " + "  ".join(chr(ord('A') + column) for column in range(state.grid_size)))
+    print("\n   " + "  ".join(chr(ord('A') + col) for col in range(state.grid_size)))
     print("  " + "---" * state.grid_size)
     
     for row in range(state.grid_size):
         row_str = f"{row + 1:2}|"
-        for column in range(state.grid_size):
-            cell = state.grid[row, column]
+        for col in range(state.grid_size):
+            cell = state.grid[row, col]
             symbol = symbols.get(cell, '?')
             row_str += f" {symbol} "
         print(row_str)
     
     # Print remaining ships
-    remaining = [f"{length}×{count}" for length, count in sorted(state.ships.items(), reverse=True) 
+    remaining = [f"{length}x{count}" for length, count in sorted(state.ships.items(), reverse=True) 
                 if count > 0]
     
-    print(f"\nRemaining ships: {', '.join(remaining) if remaining else 'all ships sunk'}")
+    print(f"\nRemaining ships: {', '.join(remaining) if remaining else 'all ships sunk!'}")
     
     if is_game_complete(state):
-        print("game complete; all ships have been sunk AAHHAHAHAHAA")
+        print("all ships have been sunk")
 
 def plot_heatmap(state: GameState, data_grid: np.ndarray, title: str) -> None:
     max_val = np.max(data_grid)
     if max_val == 0:
-        print("no data to plot")
+        print("No data to plot")
         return
     
     fig, ax = plt.subplots(figsize=(10, 8))
@@ -443,21 +455,21 @@ def plot_heatmap(state: GameState, data_grid: np.ndarray, title: str) -> None:
     
     # Add value annotations
     for row in range(state.grid_size):
-        for column in range(state.grid_size):
-            val = data_grid[row, column]
+        for col in range(state.grid_size):
+            val = data_grid[row, col]
             if val > 0.01:
                 color = 'white' if val > max_val * 0.5 else 'black'
-                ax.text(column, row, f"{val:.2f}", ha='center', va='center',
+                ax.text(col, row, f"{val:.2f}", ha='center', va='center',
                        color=color, fontsize=8, weight='bold')
     
     # Overlay game state
     state_symbols = {MISS: ('bo', 8), HIT: ('r*', 15), SUNK: ('ks', 10)}
     for row in range(state.grid_size):
-        for column in range(state.grid_size):
-            cell = state.grid[row, column]
+        for col in range(state.grid_size):
+            cell = state.grid[row, col]
             if cell in state_symbols:
                 marker, size = state_symbols[cell]
-                ax.plot(column, row, marker, markersize=size)
+                ax.plot(col, row, marker, markersize=size)
     
     plt.colorbar(heatmap, label="Value")
     plt.title(f"{title} - Ships remaining: {get_remaining_ship_count(state)}")
@@ -469,39 +481,22 @@ def plot_heatmap(state: GameState, data_grid: np.ndarray, title: str) -> None:
     plt.tight_layout()
     plt.show()
 
-
-def parse_position(pos_str):
-    pos_str = pos_str.strip().upper()
-    if len(pos_str) < 2:
-        raise ValueError("Position too short")
-    
-    column_char = pos_str[0]
-    row_str = pos_str[1:]
-    
-    if not column_char.isalpha():
-        raise ValueError("Invalid columnumn")
-    if not row_str.isdigit():
-        raise ValueError("Invalid row")
-        
-    column = ord(column_char) - ord('A')
-    row = int(row_str) - 1
-    
-    return row, column
-
 def main():
+    """Main application loop."""
     state = create_initial_state()
     
-    print("battleshit (battleship calculator)")
-    print("cmds:")
-    print("  [pos] [hit/miss/sunk] [ship_length] - Record shot (e.g., 'A4 hit', 'b3 sunk 3')")
-    print("  ai          - get suggestion for the next move")
-    print("  show        - display ascii (current) board")
-    print("  valid       - check game validity")
-    print("  prob        - probability heatmap")
-    print("  info        - information gain heatmap")
-    print("  rst         - reset game")
-    print("  man         - help.")
-    print("  q           - exit")
+    print("=== battleshit ===")
+    print("\nUNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'")
+    print("\nCmds:")
+    print("  [pos] [hit/miss/sunk] - Record shot result (e.g., 'A4 hit')")
+    print("  suggest              - Get AI suggestion for next move")
+    print("  show                 - Display current board")
+    print("  validate             - Check game state validity")
+    print("  prob                 - Show probability heatmap")
+    print("  info                 - Show information gain heatmap")
+    print("  reset                - Reset game")
+    print("  help                 - Show this help")
+    print("  quit                 - Exit")
     print()
     
     print_grid(state)
@@ -509,136 +504,133 @@ def main():
     while True:
         try:
             if is_game_complete(state):
-                print("YOU WIN BRO")
-                command = input("enter 'rst' to play again or 'q' to gtfo: ").strip().lower()
+                print("\nall ships have been found!")
+                command = input("Enter 'reset' to play again or 'quit' to exit: ").strip().lower()
                 if command == 'quit':
                     break
                 elif command == 'reset':
                     state = create_initial_state()
                     print_grid(state)
                     continue
-                
-                command = input("> ").strip().lower()
+            
+            command = input("> ").strip().lower()
         except (EOFError, KeyboardInterrupt):
-            print("alr cya\n")
+            print("\n alr cya bro")
             break
         
         if not command:
             continue
-            
+        
         parts = command.split()
         
         try:
-            if parts[0] == 'q':
-                print("cya vro <3")
+            if parts[0] == 'quit':
+                print("cya vro")
                 break
             
-            elif parts[0] == 'man':
-                print("battleshit (battleship calculator)")
-                print("cmds:")
-                print("  [pos] [hit/miss/sunk] [ship_length] - Record shot (e.g., 'A4 hit', 'b3 sunk 3')")
-                print("  ai          - get suggestion for the next move")
-                print("  show        - display ascii (current) board")
-                print("  valid       - check game validity")
-                print("  prob        - probability heatmap")
-                print("  info        - information gain heatmap")
-                print("  rst         - reset game")
-                print("  man         - help.")
-                print("  q           - exit")
-                print()
-                
-            elif parts[0] == 'valid':
+            elif parts[0] == 'help':
+                print("\ncmds:")
+                print("  [pos] [hit/miss/sunk] - Record shot result")
+                print("  suggest - Get AI suggestion")
+                print("  show - Display board")
+                print("  validate - Check game validity")
+                print("  prob - Show probability heatmap")
+                print("  info - Show information gain heatmap")
+                print("  reset - Reset game")
+                print("  quit - Exit")
+            
+            elif parts[0] == 'validate':
                 errors = validate_game_state(state)
                 if errors:
-                    print("game state validation errors uh oh:")
+                    print("Game state validation errors:")
                     for error in errors:
-                        print(f"   : {error}")
+                        print(f"   • {error}")
                 else:
-                    print(" uu good bruh <3")
-                
+                    print("Game state is valid!")
+            
             elif parts[0] == 'show':
-                solver.print_grid()
-                
-            elif parts[0] == 'rst':
-                solver.grid.fill(0)
-                solver.ships = solver.original_ships.copy()
-                solver._prob_cache = None
-                solver._cache_grid_state = None
-                print("game reset")
-                
+                print_grid(state)
+            
+            elif parts[0] == 'reset':
+                state = create_initial_state()
+                print("Game reset!")
+                print_grid(state)
+            
             elif parts[0] == 'prob':
                 prob_grid = compute_probability_grid_heuristic(state)
                 if np.max(prob_grid) > 0:
                     plot_heatmap(state, prob_grid, "Ship Probability Heatmap")
                 else:
                     print("No probability data available")
-                
+            
             elif parts[0] == 'info':
                 info_grid = compute_information_gain(state)
                 if np.max(info_grid) > 0:
                     plot_heatmap(state, info_grid, "Information Gain Heatmap")
                 else:
                     print("No information gain data available")
-                
-            elif parts[0] == 'ai':
-                move = find_best_move()
+            
+            elif parts[0] == 'suggest':
+                move = find_best_move(state)
                 if move:
-                    pos_str = f"{chr(ord('A') + move.column)}{move.row + 1}"
+                    pos_str = f"{chr(ord('A') + move.col)}{move.row + 1}"
                     prob_grid = compute_probability_grid_heuristic(state)
-                    prob = prob_grid[move.row, move.column]
+                    prob = prob_grid[move.row, move.col]
                     
                     hit_segments = find_all_hit_segments(state)
-                    strategy = " following up on the hit" if hit_segments else " on the hunt"
+                    strategy = " Following up on hit" if hit_segments else " Exploring"
                     
-                    print(f"\n suggested move: {pos_str}")
-                    print(f"  strat: {strategy}")
-                    print(f"  probability: {prob:.1%}")
+                    print(f"\n Suggested move: {pos_str}")
+                    print(f"   Strategy: {strategy}")
+                    print(f"   Probability: {prob:.1%}")
                 else:
-                    print("no valid moves available :( ")
-                    
+                    print(" No moves available!")
+            
             else:
                 # Parse shot result
                 if len(parts) < 2:
-                    print("no bro heres how 2 use: [position] [hit/miss/sunk] [optional ship_length]")
+                    print(" Usage: [position] [hit/miss/sunk] (e.g., 'A4 hit')")
                     continue
-                    
+                
                 pos_str, result = parts[0], parts[1]
                 
                 try:
                     pos = parse_position(pos_str)
                 except ValueError as e:
-                    print(f" no bro ts invalid '{pos_str}': {e}")
+                    print(f" Invalid position '{pos_str}': {e}")
                     continue
                 
-                if state.grid[pos.row, pos.column] != UNKNOWN:
-                    print(f" NO {pos_str.upper()} HAS ALR BEEN SHOT")
+                if state.grid[pos.row, pos.col] != UNKNOWN:
+                    print(f" Position {pos_str.upper()} already shot!")
                     continue
                 
                 if result not in ['hit', 'miss', 'sunk']:
-                    print("Result must be 'hit', 'miss', or 'sunk'")
+                    print(" Result must be 'hit', 'miss', or 'sunk'")
                     continue
                 
                 state = update_cell(state, pos, result)
                 
+                # Feedback
                 feedback = {
-                    'hit': f"HIT RECORDED @ {pos_str.upper()}",
-                    'miss': f"MISS RECORDED @ {pos_str.upper()}",
-                    'sunk': f"SHIP SUNK @ {pos_str.upper()}"
+                    'hit': f" Hit recorded at {pos_str.upper()}!",
+                    'miss': f" Miss recorded at {pos_str.upper()}",
+                    'sunk': f" Ship sunk at {pos_str.upper()}!"
                 }
-                
                 print(feedback[result])
                 
+                # Validate and show board
                 errors = validate_game_state(state)
                 if errors:
-                    print(" warning bruh: uu might be breaking some rules")
+                    print(" Warning: Potential rule violations detected")
                     for error in errors[:2]:
-                        print(f"  : {error}")
-                        
+                        print(f"   • {error}")
+                
                 print_grid(state)
-                                    
+        
         except Exception as e:
-            print(f"Error: {e}")
-            print(" type 'man' for cmd use")
+            print(f" Error: {e}")
+            print("Type 'help' for command usage")
+
 
 if __name__ == "__main__":
     main()
