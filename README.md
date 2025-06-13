@@ -1,35 +1,26 @@
-# Battleshit – A Heuristic Battleship Calculator
+# Battleboi – An Overengineered Battleship Calculator
 
-Battleshit is a command-line Battleship calculator built in Python based on GamePigeon iMessage rules. 
+Battleboi is a command-line Battleship calculator built in Python based on GamePigeon iMessage rules. 
 It uses probabilistic modeling and information theory to guide players toward the 
 best possible moves, with an emphasis on fast play and clear diagnostics.
 
-## Features
-
-- Smart AI move suggestions based on ship placement probabilities, information gain (Shannon entropy), and hit-segment continuation
-- Visual probability and information gain heatmaps using `matplotlib`:
-- Checks for ship adjacency violations and illegal ship shapes (non-straight lines) 
-- Flexible CLI commands for updating hits, misses, sunk ships
-- Clear ASCII board rendering and move logging
-- Modular code for simulation, extension, and testing
+A more detailed explanation of how Battleboi works can be found on [Medium]()
 
 ## Requirements
 
 - Python 3.8+
-- NumPy
-- Matplotlib
 
 Install dependencies via pip:
 
 ```sh
-pip install numpy matplotlib
+pip install -r requirements.txt
 ````
 ## Usage
 
-Run battleshit:
+Run Battleboi:
 
 ```sh
-python poo.py
+python main.py
 ```
 
 You'll enter an interactive shell with commands like:
@@ -74,6 +65,7 @@ q              # quit
 
 ## TODO
 
+* Undo option
 * GUI mode with Tkinter or PyQt
 * Save/load game state
 * Ship randomizer for simulating full games

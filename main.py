@@ -485,7 +485,7 @@ def main():
     """Main application loop."""
     state = create_initial_state()
     
-    print("=== battleshit ===")
+    print("=== awesome sauce battleship algorithm ===")
     print("\nUNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'")
     print("\nCmds:")
     print("  [pos] [hit/miss/sunk] - Record shot result (e.g., 'A4 hit')")
