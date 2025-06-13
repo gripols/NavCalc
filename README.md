@@ -39,29 +39,14 @@ man            # show command help
 q              # quit
 ```
 
-## AI Strategy
-
-1. **Complete Segments First**
-   AI prioritizes extending existing HIT chains.
-
-2. **Entropy Maximization**
-   In absence of HITs, it calculates info gain via Shannon entropy:
-
-   $$
-   H(p) = -p \log_2 p - (1 - p) \log_2(1 - p)
-   $$
-
-3. **Raw Probability Targeting**
-   Falls back to choosing cells most likely to contain a ship.
-
 ## Notes and Quirks
 
 * All logic is written in modular, testable functions.
 * Probability is calculated via weighted sampling of all valid ship placements.
 * Display and plot code is cleanly separated from core logic.
-* `Position` uses `(row, column)` convention, starting from 0.
-* Input like `'A1'` corresponds to `row=0, column=0`.
-* Duplicate `parse_position()` exists at the end of the script — clean this in future.
+* `Position` uses `(row, column)` convention, starting from 1.
+* Input like `'A1'` corresponds to `row=1, column=1`.
+* Duplicate `parse_position()` exists at the end of the script; clean this in future!
 
 ## TODO
 
