@@ -1,10 +1,8 @@
 # Battleboi – An Overengineered Battleship Calculator
 
 Battleboi is a command-line Battleship calculator built in Python based on GamePigeon iMessage rules. 
-It uses probabilistic modeling and information theory to guide players toward the 
+It uses Bayesian statistics and information theory to guide players toward the 
 best possible moves, with an emphasis on fast play and clear diagnostics.
-
-A more detailed explanation of how Battleboi works can be found on [Medium](https://medium.com/@gripols_/overengineering-battleship-with-bayesian-statistics-and-information-gain-6e7082b1b0b8)
 
 ## Requirements
 
@@ -50,7 +48,6 @@ q              # quit
 
 ## TODO
 
-* Undo option
 * GUI mode with Tkinter or PyQt
 * Save/load game state
 * Ship randomizer for simulating full games

@@ -7,12 +7,17 @@ from typing import List, Tuple, Set, Dict, Optional, Callable, Iterator
 from functools import reduce, partial
 from itertools import chain, product
 import operator
+import copy
 
-# Core data structures (immutable-like)
+# Core data structs immutable like
 Position = namedtuple('Position', ['row', 'col'])
 Ship = namedtuple('Ship', ['length', 'count'])
 GameState = namedtuple('GameState', ['grid', 'ships', 'grid_size'])
 ShotResult = namedtuple('ShotResult', ['position', 'outcome'])
+
+# History management data structs
+GameAction = namedtuple('GameAction', ['position', 'result', 'description'])
+GameHistory = namedtuple('GameHistory', ['states', 'actions', 'current_index'])
 
 # Grid cell states
 UNKNOWN, MISS, HIT, SUNK = 0, 1, 2, 3
@@ -37,6 +42,70 @@ def create_initial_state(grid_size: int = DEFAULT_GRID_SIZE,
         ships=ships,
         grid_size=grid_size
     )
+
+# History management functions (pure/functional)
+def create_initial_history(initial_state: GameState) -> GameHistory:
+    return GameHistory(
+        states=[initial_state],
+        actions=[],
+        current_index=0
+    )
+
+def add_state_to_history(history: GameHistory, new_state: GameState, 
+                        action: GameAction) -> GameHistory:
+    # Add a new state to history, potentially truncating future states, and
+    # if we're not at the end of history, truncate future states
+    current_states = history.states[:history.current_index + 1]
+    current_actions = history.actions[:history.current_index]
+    
+    return GameHistory(
+        states=current_states + [new_state],
+        actions=current_actions + [action],
+        current_index=len(current_states)
+    )
+
+def can_undo(history: GameHistory) -> bool:
+    return history.current_index > 0
+
+def can_redo(history: GameHistory) -> bool:
+    return history.current_index < len(history.states) - 1
+
+def undo_state(history: GameHistory) -> Tuple[GameHistory, Optional[GameState]]:
+    if not can_undo(history):
+        return history, None
+    
+    new_index = history.current_index - 1
+    new_history = GameHistory(
+        states=history.states,
+        actions=history.actions,
+        current_index=new_index
+    )
+    
+    return new_history, history.states[new_index]
+
+def redo_state(history: GameHistory) -> Tuple[GameHistory, Optional[GameState]]:
+    if not can_redo(history):
+        return history, None
+    
+    new_index = history.current_index + 1
+    new_history = GameHistory(
+        states=history.states,
+        actions=history.actions,
+        current_index=new_index
+    )
+    
+    return new_history, history.states[new_index]
+
+def get_current_state(history: GameHistory) -> GameState:
+    return history.states[history.current_index]
+
+def get_last_action(history: GameHistory) -> Optional[GameAction]:
+    if history.current_index == 0:
+        return None
+    return history.actions[history.current_index - 1]
+
+def reset_history(initial_state: GameState) -> GameHistory:
+    return create_initial_history(initial_state)
 
 # Ship placement utilities
 def get_ship_positions(start: Position, length: int, vertical: bool) -> List[Position]:
@@ -419,7 +488,7 @@ def get_remaining_ship_count(state: GameState) -> int:
     return sum(state.ships.values())
 
 # Display functions
-def print_grid(state: GameState) -> None:
+def print_grid(state: GameState, show_move_count: bool = False, move_count: int = 0) -> None:
     symbols = {UNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'}
     
     print("\n   " + "  ".join(chr(ord('A') + col) for col in range(state.grid_size)))
@@ -437,10 +506,21 @@ def print_grid(state: GameState) -> None:
     remaining = [f"{length}x{count}" for length, count in sorted(state.ships.items(), reverse=True) 
                 if count > 0]
     
-    print(f"\nRemaining ships: {', '.join(remaining) if remaining else 'all ships sunk!'}")
+    ships_info = f"Remaining ships: {', '.join(remaining) if remaining else 'all ships sunk!'}"
+    if show_move_count:
+        ships_info += f" | Moves: {move_count}"
+    print(f"\n{ships_info}")
     
     if is_game_complete(state):
         print("all ships have been sunk")
+
+def print_history_status(history: GameHistory) -> None:
+    undo_available = "yes" if can_undo(history) else "no"
+    redo_available = "yes" if can_redo(history) else "no"
+    current_move = history.current_index
+    total_moves = len(history.states) - 1
+    
+    print(f"History: Move {current_move}/{total_moves} | Undo: {undo_available} | Redo: {redo_available}")
 
 def plot_heatmap(state: GameState, data_grid: np.ndarray, title: str) -> None:
     max_val = np.max(data_grid)
@@ -482,8 +562,8 @@ def plot_heatmap(state: GameState, data_grid: np.ndarray, title: str) -> None:
     plt.show()
 
 def main():
-    """Main application loop."""
-    state = create_initial_state()
+    initial_state = create_initial_state()
+    history = create_initial_history(initial_state)
     
     print("=== awesome sauce battleship algorithm ===")
     print("\nUNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'")
@@ -494,23 +574,33 @@ def main():
     print("  validate             - Check game state validity")
     print("  prob                 - Show probability heatmap")
     print("  info                 - Show information gain heatmap")
+    print("  undo                 - Undo last move")
+    print("  redo                 - Redo undone move")
+    print("  history              - Show move history")
     print("  reset                - Reset game")
     print("  help                 - Show this help")
     print("  quit                 - Exit")
     print()
     
-    print_grid(state)
+    current_state = get_current_state(history)
+    print_grid(current_state, True, history.current_index)
+    print_history_status(history)
     
     while True:
         try:
-            if is_game_complete(state):
+            current_state = get_current_state(history)
+            
+            if is_game_complete(current_state):
                 print("\nall ships have been found!")
                 command = input("Enter 'reset' to play again or 'quit' to exit: ").strip().lower()
                 if command == 'quit':
                     break
                 elif command == 'reset':
-                    state = create_initial_state()
-                    print_grid(state)
+                    initial_state = create_initial_state()
+                    history = create_initial_history(initial_state)
+                    current_state = get_current_state(history)
+                    print_grid(current_state, True, history.current_index)
+                    print_history_status(history)
                     continue
             
             command = input("> ").strip().lower()
@@ -536,48 +626,92 @@ def main():
                 print("  validate - Check game validity")
                 print("  prob - Show probability heatmap")
                 print("  info - Show information gain heatmap")
+                print("  undo - Undo last move")
+                print("  redo - Redo undone move")
+                print("  history - Show move history")
                 print("  reset - Reset game")
                 print("  quit - Exit")
             
+            elif parts[0] == 'undo':
+                if can_undo(history):
+                    history, new_state = undo_state(history)
+                    if new_state:
+                        last_action = get_last_action(history)
+                        action_desc = f" (undid: {last_action.description})" if last_action else ""
+                        print(f"Undone to move {history.current_index}{action_desc}")
+                        print_grid(new_state, True, history.current_index)
+                        print_history_status(history)
+                else:
+                    print("Cannot undo - already at the beginning")
+            
+            elif parts[0] == 'redo':
+                if can_redo(history):
+                    history, new_state = redo_state(history)
+                    if new_state:
+                        last_action = get_last_action(history)
+                        action_desc = f" (redid: {last_action.description})" if last_action else ""
+                        print(f"Redone to move {history.current_index}{action_desc}")
+                        print_grid(new_state, True, history.current_index)
+                        print_history_status(history)
+                else:
+                    print("Cannot redo - already at the latest state")
+            
+            elif parts[0] == 'history':
+                print(f"\nMove History (current: {history.current_index}):")
+                print("  0: Initial state")
+                for i, action in enumerate(history.actions, 1):
+                    marker = " >" if i == history.current_index else "  "
+                    print(f"{marker}{i}: {action.description}")
+                print()
+            
             elif parts[0] == 'validate':
-                errors = validate_game_state(state)
+                current_state = get_current_state(history)
+                errors = validate_game_state(current_state)
                 if errors:
                     print("Game state validation errors:")
                     for error in errors:
-                        print(f"   • {error}")
+                        print(f"   - {error}")
                 else:
                     print("Game state is valid!")
             
             elif parts[0] == 'show':
-                print_grid(state)
+                current_state = get_current_state(history)
+                print_grid(current_state, True, history.current_index)
+                print_history_status(history)
             
             elif parts[0] == 'reset':
-                state = create_initial_state()
+                initial_state = create_initial_state()
+                history = create_initial_history(initial_state)
                 print("Game reset!")
-                print_grid(state)
+                current_state = get_current_state(history)
+                print_grid(current_state, True, history.current_index)
+                print_history_status(history)
             
             elif parts[0] == 'prob':
-                prob_grid = compute_probability_grid_heuristic(state)
+                current_state = get_current_state(history)
+                prob_grid = compute_probability_grid_heuristic(current_state)
                 if np.max(prob_grid) > 0:
-                    plot_heatmap(state, prob_grid, "Ship Probability Heatmap")
+                    plot_heatmap(current_state, prob_grid, "Ship Probability Heatmap")
                 else:
                     print("No probability data available")
             
             elif parts[0] == 'info':
-                info_grid = compute_information_gain(state)
+                current_state = get_current_state(history)
+                info_grid = compute_information_gain(current_state)
                 if np.max(info_grid) > 0:
-                    plot_heatmap(state, info_grid, "Information Gain Heatmap")
+                    plot_heatmap(current_state, info_grid, "Information Gain Heatmap")
                 else:
                     print("No information gain data available")
             
             elif parts[0] == 'suggest':
-                move = find_best_move(state)
+                current_state = get_current_state(history)
+                move = find_best_move(current_state)
                 if move:
                     pos_str = f"{chr(ord('A') + move.col)}{move.row + 1}"
-                    prob_grid = compute_probability_grid_heuristic(state)
+                    prob_grid = compute_probability_grid_heuristic(current_state)
                     prob = prob_grid[move.row, move.col]
                     
-                    hit_segments = find_all_hit_segments(state)
+                    hit_segments = find_all_hit_segments(current_state)
                     strategy = " Following up on hit" if hit_segments else " Exploring"
                     
                     print(f"\n Suggested move: {pos_str}")
@@ -593,6 +727,7 @@ def main():
                     continue
                 
                 pos_str, result = parts[0], parts[1]
+                current_state = get_current_state(history)
                 
                 try:
                     pos = parse_position(pos_str)
@@ -600,7 +735,7 @@ def main():
                     print(f" Invalid position '{pos_str}': {e}")
                     continue
                 
-                if state.grid[pos.row, pos.col] != UNKNOWN:
+                if current_state.grid[pos.row, pos.col] != UNKNOWN:
                     print(f" Position {pos_str.upper()} already shot!")
                     continue
                 
@@ -608,7 +743,14 @@ def main():
                     print(" Result must be 'hit', 'miss', or 'sunk'")
                     continue
                 
-                state = update_cell(state, pos, result)
+                # Create new state and add to history
+                new_state = update_cell(current_state, pos, result)
+                action = GameAction(
+                    position=pos,
+                    result=result,
+                    description=f"{pos_str.upper()} {result}"
+                )
+                history = add_state_to_history(history, new_state, action)
                 
                 # Feedback
                 feedback = {
@@ -619,13 +761,14 @@ def main():
                 print(feedback[result])
                 
                 # Validate and show board
-                errors = validate_game_state(state)
+                errors = validate_game_state(new_state)
                 if errors:
                     print(" Warning: Potential rule violations detected")
                     for error in errors[:2]:
-                        print(f"   • {error}")
+                        print(f"   - {error}")
                 
-                print_grid(state)
+                print_grid(new_state, True, history.current_index)
+                print_history_status(history)
         
         except Exception as e:
             print(f" Error: {e}")
