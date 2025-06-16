@@ -11,6 +11,14 @@ from colorama import Fore, Style
 import matplotlib.pyplot as plt
 import numpy as np
 
+
+# FIXME: 
+# - Никаких вложенных циклов  
+# - Написать документацию 
+# - Используйте команды--максимум 3 букв
+# - Добавить Пояснения к Стратегиям
+
+
 # immutable like structs
 Position = namedtuple("Position", ["row", "col"])
 Ship = namedtuple("Ship", ["length", "count"])
@@ -784,7 +792,7 @@ def main() -> None:
     print("BATTLESHIT")
     print("UNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'\n")
     print(
-        "Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  suggest               - AI suggestion for next move\n  show                  - Display board\n  validate              - Validate current state\n  prob                  - Show probability heatmap (integrated)\n  info                  - Show information‑gain heatmap\n  undo / redo           - Time‑travel moves\n  history               - List moves\n  reset                 - Restart game\n  help                  - Show help\n  quit                  - Exit"
+        "Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  ai - suggestion for next move\n  show - Display board\n  vld - Validate current state\n  prb - Show probability heatmap (integrated)\n  inf - Show information‑gain heatmap\n  und/red - Time‑travel moves\n  hist - List moves\n  rst - Restart game\n  man - Show help\n  quit - Exit"
     )
 
     while True:
@@ -810,10 +818,11 @@ def main() -> None:
         parts = inp.split()
         try:
             if parts[0] == "quit":
+                print("ok cya")
                 break
-            if parts[0] == "help":
-                print("Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  suggest               - AI suggestion for next move\n  show                  - Display board\n  validate              - Validate current state\n  prob                  - Show probability heatmap (integrated)\n  info                  - Show information‑gain heatmap\n  undo / redo           - Time‑travel moves\n  history               - List moves\n  reset                 - Restart game\n  help                  - Show help\n  quit                  - Exit")
-            elif parts[0] == "undo":
+            if parts[0] == "man":
+                print("Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  ai - suggestion for next move\n  show - Display board\n  vld - Validate current state\n  prb - Show probability heatmap (integrated)\n  inf - Show information‑gain heatmap\n  und / red - Time‑travel moves\n  hist - List moves\n  rst - Restart game\n  man - Show help\n  quit - Exit")
+            elif parts[0] == "und":
                 if can_undo(hist):
                     hist, _ = undo_state(hist)
                     print_grid(
@@ -822,7 +831,7 @@ def main() -> None:
                     print_history_status(hist)
                 else:
                     print("nothing to undo")
-            elif parts[0] == "redo":
+            elif parts[0] == "red":
                 if can_redo(hist):
                     hist, _ = redo_state(hist)
                     print_grid(
@@ -831,43 +840,43 @@ def main() -> None:
                     print_history_status(hist)
                 else:
                     print("nothing to redo")
-            elif parts[0] == "history":
+            elif parts[0] == "hist":
                 print("\nMove History:")
                 print("  0: Initial state")
                 for i, act in enumerate(hist.actions, 1):
                     marker = "*" if i == hist.current_index else " "
                     print(f"{marker} {i}: {act.description}")
-            elif parts[0] == "validate":
+            elif parts[0] == "vld":
                 errs = validate_game_state(get_current_state(hist))
                 print(
-                    "its valid uu good bro"
+                    "its valid you good bro"
                     if not errs
                     else "\n".join(["Errors:"] + [f"- {e}" for e in errs])
                 )
             elif parts[0] == "show":
                 print_grid(get_current_state(hist), True, hist.current_index)
                 print_history_status(hist)
-            elif parts[0] == "reset":
+            elif parts[0] == "rst":
                 hist = create_initial_history(create_initial_state())
                 print("Game reset")
-            elif parts[0] == "prob":
+            elif parts[0] == "prb":
                 pg = compute_integrated_probability_grid(
                     get_current_state(hist)
                 )
                 plot_heatmap(
                     get_current_state(hist), pg, "Integrated Ship Probability"
                 )
-            elif parts[0] == "info":
+            elif parts[0] == "inf":
                 ig = compute_information_gain(get_current_state(hist))
                 plot_heatmap(
                     get_current_state(hist), ig, "Information Gain (Entropy)"
                 )
-            elif parts[0] == "suggest":
+            elif parts[0] == "ai":
                 move = get_move_with_uncertainty_consideration(
                     get_current_state(hist)
                 )
                 if move is None:
-                    print("no legal moves found--somethings wrong")
+                    print("no legal moves found so somethings wrong")
                     continue
                 pos_str = f"{chr(ord('A') + move.col)}{move.row + 1}"
                 pgrid = compute_integrated_probability_grid(
