@@ -6,6 +6,7 @@ from collections import namedtuple
 from functools import partial, reduce
 from itertools import chain, product
 from typing import Dict, Iterator, List, Optional, Set, Tuple
+from colorama import Fore, Style
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -189,7 +190,7 @@ def find_all_hit_segments(state: GameState) -> List[List[Position]]:
     return segments
 
 
-# i dont like nested loops :(
+# вложенные циклы могут идти нахуй бля
 def generate_all_ship_placements(
     state: GameState, ship_length: int
 ) -> Iterator[List[Position]]:
@@ -232,7 +233,7 @@ def calculate_placement_weight(placement: List[Position], hit_segments: List[Lis
     full_explanation_bonus = 1.0 + (explained_segments * 0.5)
     
     if explanation_ratio == 0.0:
-        return 0.1  # Low probability, but not zero
+        return 0.1  # Low but not zero 
     
     return explanation_ratio * full_explanation_bonus
 
@@ -303,7 +304,7 @@ def calculate_remaining_ship_constraints(state: GameState) -> Dict[int, float]:
 def apply_statistical_patterns(
     grid: np.ndarray, state: GameState
 ) -> np.ndarray:
-    # placeholder if I want more later
+    # placeholder if I want more later (fuck no)
     return grid
 
 
@@ -317,17 +318,6 @@ def get_parity_positions(grid_size: int, parity: int) -> List[Position]:
 
 
 def get_optimal_parity_for_ships(ships: Dict[int, int]) -> int:
-    """
-    singles = sum(
-        count for length, count in ships.items() if length == 1 and count > 0
-    )
-    others = sum(
-        count for length, count in ships.items() if length > 1 and count > 0
-    )
-    return (
-        0 if singles >= others else 1
-    )  # Return 1 for odd parity when appropriate
-    """
     total_ship_cells = sum(length * count for length, count in ships.items())
     
     single_cells = ships.get(1, 0)
@@ -689,15 +679,16 @@ def get_remaining_ship_count(state: GameState) -> int:
     return sum(state.ships.values())
 
 
-def print_grid(
-    state: GameState, show_moves: bool = False, move_cnt: int = 0
-) -> None:
-    symbols = {UNKNOWN: ".", MISS: "m", HIT: "X", SUNK: "-"}
+def print_grid(state: GameState, show_moves: bool = False, move_cnt: int = 0) -> None:
+    symbols = {
+        UNKNOWN: (".", Style.RESET_ALL),
+        MISS: ("M", Fore.BLUE),
+        HIT: ("X", Fore.RED),
+        SUNK: ("S", Fore.MAGENTA),
+    }
     grid_size = state.grid_size
 
-    header = "    " + " ".join(
-        f"{chr(ord('A') + c):^3}" for c in range(grid_size)
-    )
+    header = "    " + " ".join(f"{chr(ord('A') + c):^3}" for c in range(grid_size))
     print("\n" + header)
 
     separator = "   +" + "---+" * grid_size
@@ -706,23 +697,30 @@ def print_grid(
     for r in range(grid_size):
         row_label = f"{r + 1:2} |"
         row_cells = "".join(
-            f" {symbols.get(state.grid[r, c], '?')} |" for c in range(grid_size)
+            f" {symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[1]}{symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[0]}{Style.RESET_ALL} |"
+            for c in range(grid_size)
         )
         print(row_label + row_cells)
         print(separator)
+
+    print("\nLegend:")
+    print(f"  {Style.RESET_ALL}. = Unknown")
+    print(f"  {Fore.BLUE}M = Miss{Style.RESET_ALL}")
+    print(f"  {Fore.RED}X = Hit{Style.RESET_ALL}")
+    print(f"  {Fore.MAGENTA}S = Sunk{Style.RESET_ALL}")
 
     remaining = [
         f"{ln}x{cnt}"
         for ln, cnt in sorted(state.ships.items(), reverse=True)
         if cnt > 0
     ]
-    info = f"remaining ships: {', '.join(remaining) if remaining else 'all ships sunk!'}"
+    info = f"Remaining ships: {', '.join(remaining) if remaining else 'All ships sunk!'}"
     if show_moves:
-        info += f" | moves: {move_cnt}"
+        info += f" | Moves: {move_cnt}"
     print("\n" + info)
 
     if is_game_complete(state):
-        print("all ships have been sunk!")
+        print("All ships have been sunk!")
 
 
 def print_history_status(history: GameHistory) -> None:
@@ -781,11 +779,9 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
     plt.tight_layout()
     plt.show()
 
-# FIXME: This should be significantly more user friendly
 def main() -> None:
     hist = create_initial_history(create_initial_state())
-    print("=== Battleboi ===")
-    # FIXME: i dont like the symbol for SUNK
+    print("BATTLESHIT")
     print("UNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'\n")
     print(
         "Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  suggest               - AI suggestion for next move\n  show                  - Display board\n  validate              - Validate current state\n  prob                  - Show probability heatmap (integrated)\n  info                  - Show information‑gain heatmap\n  undo / redo           - Time‑travel moves\n  history               - List moves\n  reset                 - Restart game\n  help                  - Show help\n  quit                  - Exit"
@@ -871,7 +867,7 @@ def main() -> None:
                     get_current_state(hist)
                 )
                 if move is None:
-                    print("no legal moves found--maybe somethings wrong?")
+                    print("no legal moves found--somethings wrong")
                     continue
                 pos_str = f"{chr(ord('A') + move.col)}{move.row + 1}"
                 pgrid = compute_integrated_probability_grid(
@@ -879,9 +875,9 @@ def main() -> None:
                 )
                 prob = pgrid[move.row, move.col]
                 strategy = (
-                    "Following up on hits"
+                    "following up on hits"
                     if find_all_hit_segments(get_current_state(hist))
-                    else "Searching"
+                    else "searching"
                 )
                 print(f"Suggested: {pos_str} | Strategy: {strategy} | Probability: {prob:.1%}")
             else:
