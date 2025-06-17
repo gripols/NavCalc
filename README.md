@@ -1,7 +1,8 @@
 # battleshit -- overengineered battleship calculator
 
-based on GamePigeon iMessage rules. uses Bayesian inferencing
+based on GamePigeon iMessage rules. uses Bayesian inferencing and
 some information gain and entropy to give you the best move and kick ass.
+(document explaining the math concepts behind this will be released soon...)
 
 ## requirements
 

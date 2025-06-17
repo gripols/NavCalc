@@ -3,7 +3,7 @@ import copy
 import math
 import operator
 from collections import namedtuple
-from functools import partial, reduce
+from functools import partial, reduce, lru_cache
 from itertools import chain, product
 from typing import Dict, Iterator, List, Optional, Set, Tuple
 from colorama import Fore, Style
@@ -202,22 +202,54 @@ def find_all_hit_segments(state: GameState) -> List[List[Position]]:
     return segments
 
 
-# вложенные циклы могут идти нахуй бля
-# FIXME: This is O(n^3) I believe.
+@lru_cache(maxsize=None)
+def _precomputed_placements_and_adjacents(
+    grid_size: int, ship_length: int
+) -> List[Tuple[Tuple[Position, ...], Set[Position]]]:
+    placements_with_adj = []
+    for r in range(grid_size):
+        for c in range(grid_size - ship_length + 1):
+            placement = tuple(Position(r, c + i) for i in range(ship_length))
+            adj = get_adjacent_positions(placement, grid_size)
+            placements_with_adj.append((placement, adj))
+    for c in range(grid_size):
+        for r in range(grid_size - ship_length + 1):
+            placement = tuple(Position(r + i, c) for i in range(ship_length))
+            adj = get_adjacent_positions(placement, grid_size)
+            placements_with_adj.append((placement, adj))
+    return placements_with_adj
+
+
 def generate_all_ship_placements(
     state: GameState, ship_length: int
 ) -> Iterator[List[Position]]:
-    gsize = state.grid_size
-    for r in range(gsize):
-        for c in range(gsize):
-            if c + ship_length <= gsize:
-                start = Position(r, c)
-                if can_place_ship(state, start, ship_length, vertical=False):
-                    yield get_ship_positions(start, ship_length, vertical=False)
-            if r + ship_length <= gsize:            # off-board prune
-                start = Position(r, c)
-                if can_place_ship(state, start, ship_length, vertical=True):
-                    yield get_ship_positions(start, ship_length, vertical=True)
+    grid = state.grid
+    size = state.grid_size
+
+    # Compute forbidden and danger zones only once
+    forbidden = {
+        Position(r, c)
+        for r in range(size)
+        for c in range(size)
+        if grid[r, c] in (MISS, SUNK)
+    }
+    danger = {
+        Position(r, c)
+        for r in range(size)
+        for c in range(size)
+        if grid[r, c] in (HIT, SUNK)
+    }
+
+    for placement, adjacents in _precomputed_placements_and_adjacents(
+        size, ship_length
+    ):
+        # overlapping forbidden cells
+        if any(p in forbidden for p in placement):
+            continue
+        # touching HIT/SUNK cells (violates non-touch rule)
+        if any(a in danger for a in adjacents):
+            continue
+        yield list(placement)
 
 
 def calculate_placement_weight(
@@ -566,10 +598,7 @@ def get_move_with_uncertainty_consideration(
 
     for r in range(state.grid_size):
         for c in range(state.grid_size):
-            if (
-                state.grid[r, c] == UNKNOWN
-                and combined_score[r, c] > max_score
-            ):
+            if state.grid[r, c] == UNKNOWN and combined_score[r, c] > max_score:
                 max_score = combined_score[r, c]
                 best_position = Position(r, c)
 
@@ -668,9 +697,7 @@ def validate_game_state(state: GameState) -> List[str]:
 
 
 def format_positions(pos: List[Position]) -> str:
-    return ", ".join(
-        f"{chr(ord('A') + p.col)}{p.row + 1}" for p in sorted(pos)
-    )
+    return ", ".join(f"{chr(ord('A') + p.col)}{p.row + 1}" for p in sorted(pos))
 
 
 def parse_position(s: str) -> Position:
