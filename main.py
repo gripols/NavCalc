@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-# FIXME: 
-# - Никаких вложенных циклов  
-# - Написать документацию 
+# FIXME:
+# - Никаких вложенных циклов
+# - Написать документацию
 # - Используйте команды--максимум 3 букв
 # - Добавить Пояснения к Стратегиям
 
@@ -61,8 +61,8 @@ def create_initial_history(initial_state: GameState) -> GameHistory:
 def add_state_to_history(
     history: GameHistory, new_state: GameState, action: GameAction
 ) -> GameHistory:
-    states  = history.states[: history.current_index + 1]
-    actions = history.actions[: history.current_index + 1]   # keep them in sync
+    states = history.states[: history.current_index + 1]
+    actions = history.actions[: history.current_index + 1]  # keep them in sync
     return GameHistory(states + [new_state], actions + [action], len(states))
 
 
@@ -74,7 +74,9 @@ def can_redo(history: GameHistory) -> bool:
     return history.current_index < len(history.states) - 1
 
 
-def undo_state(history: GameHistory) -> Tuple[GameHistory, Optional[GameState]]:
+def undo_state(
+    history: GameHistory,
+) -> Tuple[GameHistory, Optional[GameState]]:
     if not can_undo(history):
         return history, None
     new_index = history.current_index - 1
@@ -84,7 +86,9 @@ def undo_state(history: GameHistory) -> Tuple[GameHistory, Optional[GameState]]:
     )
 
 
-def redo_state(history: GameHistory) -> Tuple[GameHistory, Optional[GameState]]:
+def redo_state(
+    history: GameHistory,
+) -> Tuple[GameHistory, Optional[GameState]]:
     if not can_redo(history):
         return history, None
     new_index = history.current_index + 1
@@ -199,106 +203,116 @@ def find_all_hit_segments(state: GameState) -> List[List[Position]]:
 
 
 # вложенные циклы могут идти нахуй бля
+# FIXME: This is O(n^3) I believe.
 def generate_all_ship_placements(
     state: GameState, ship_length: int
 ) -> Iterator[List[Position]]:
-    for r in range(state.grid_size):
-        for c in range(state.grid_size):
-            for vertical in (False, True):
+    gsize = state.grid_size
+    for r in range(gsize):
+        for c in range(gsize):
+            if c + ship_length <= gsize:
                 start = Position(r, c)
-                if can_place_ship(state, start, ship_length, vertical):
-                    yield get_ship_positions(start, ship_length, vertical)
+                if can_place_ship(state, start, ship_length, vertical=False):
+                    yield get_ship_positions(start, ship_length, vertical=False)
+            if r + ship_length <= gsize:            # off-board prune
+                start = Position(r, c)
+                if can_place_ship(state, start, ship_length, vertical=True):
+                    yield get_ship_positions(start, ship_length, vertical=True)
 
 
-def calculate_placement_weight(placement: List[Position], hit_segments: List[List[Position]]) -> float:
+def calculate_placement_weight(
+    placement: List[Position], hit_segments: List[List[Position]]
+) -> float:
     if not hit_segments:
         return 1.0
-    
+
     pos_set = set(placement)
     explained_segments = 0
     partial_overlaps = 0
     total_hit_cells = sum(len(seg) for seg in hit_segments)
     explained_hit_cells = 0
-    
+
     for seg in hit_segments:
         seg_set = set(seg)
         overlap = pos_set & seg_set
-        
+
         if seg_set.issubset(pos_set):
-            # Fully explains this segment
             explained_segments += 1
             explained_hit_cells += len(seg)
         elif overlap:
-            # Partially overlaps
             partial_overlaps += 1
             explained_hit_cells += len(overlap)
-    
+
     if total_hit_cells == 0:
         return 1.0
-    
+
     explanation_ratio = explained_hit_cells / total_hit_cells
-    
+
     full_explanation_bonus = 1.0 + (explained_segments * 0.5)
-    
+
     if explanation_ratio == 0.0:
-        return 0.1  # Low but not zero 
-    
+        return 0.1  # Low but not zero
+
     return explanation_ratio * full_explanation_bonus
 
 
 def compute_probability_grid_heuristic(state: GameState) -> np.ndarray:
     grid = np.zeros((state.grid_size, state.grid_size), dtype=float)
     hit_segments = find_all_hit_segments(state)
-    
+
     for length, count in state.ships.items():
         if count <= 0:
             continue
-            
-        length_weight = 0.0
+
         for placement in generate_all_ship_placements(state, length):
+            if hit_segments and not any(
+                p in placement for seg in hit_segments for p in seg
+            ):
+                continue
+
             w = calculate_placement_weight(placement, hit_segments)
-            cell_w = w / len(placement)
-            
-            for p in placement:
-                grid[p.row, p.col] += cell_w * count
-            length_weight += w * count
-    
-    fired_mask = state.grid != UNKNOWN
-    grid[fired_mask] = 0.0
-    
+            cell_weight = (w / len(placement)) * count
+
+            rows = [p.row for p in placement]
+            cols = [p.col for p in placement]
+            np.add.at(grid, (rows, cols), cell_weight)
+
+    grid[state.grid != UNKNOWN] = 0.0
+
     total = grid.sum()
     if total > 0:
         grid /= total
-    
+
     return grid
 
 
 def compute_information_gain(state: GameState) -> np.ndarray:
     base_probs = compute_probability_grid_heuristic(state)
     info_gain = np.zeros_like(base_probs)
-    
+
     for r in range(state.grid_size):
         for c in range(state.grid_size):
             if state.grid[r, c] != UNKNOWN:
                 continue
-                
+
             pos = Position(r, c)
             p_hit = base_probs[r, c]
             p_miss = 1.0 - p_hit
-            
+
             if p_hit > 0 and p_hit < 1:
-                current_entropy = -(p_hit * np.log2(p_hit) + p_miss * np.log2(p_miss))
+                current_entropy = -(
+                    p_hit * np.log2(p_hit) + p_miss * np.log2(p_miss)
+                )
             else:
                 current_entropy = 0.0
-            
-            # information gain is the current entropy (since we'll know the result after shooting)
+
             info_gain[r, c] = current_entropy
-    
+
     # normalize
     total = info_gain.sum()
     if total > 0:
         info_gain /= total
-    
+
     return info_gain
 
 
@@ -327,10 +341,12 @@ def get_parity_positions(grid_size: int, parity: int) -> List[Position]:
 
 def get_optimal_parity_for_ships(ships: Dict[int, int]) -> int:
     total_ship_cells = sum(length * count for length, count in ships.items())
-    
+
     single_cells = ships.get(1, 0)
-    multi_cell_ships = sum(count for length, count in ships.items() if length > 1)
-    
+    multi_cell_ships = sum(
+        count for length, count in ships.items() if length > 1
+    )
+
     if single_cells > 0 and single_cells > (multi_cell_ships * 3):
         return 1
     return 0
@@ -372,34 +388,34 @@ def calculate_density_multiplier(
     r0, c0 = pos
     total_weighted_density = 0.0
     total_weight = 0.0
-    
+
     for ship_length, coverage_map in cov_maps.items():
         ship_count = state.ships[ship_length]
         if ship_count <= 0:
             continue
-            
+
         r_start = max(0, r0 - window)
         r_end = min(state.grid_size, r0 + window + 1)
         c_start = max(0, c0 - window)
         c_end = min(state.grid_size, c0 + window + 1)
-        
+
         local_region = coverage_map[r_start:r_end, c_start:c_end]
-        
+
         if local_region.size == 0:
             continue
-        
+
         local_density = local_region.sum() / local_region.size
         max_possible = local_region.max()
-        
+
         if max_possible > 0:
             normalized_density = local_density / max_possible
         else:
             normalized_density = 0.0
-        
+
         weight = ship_count * ship_length
         total_weighted_density += normalized_density * weight
         total_weight += weight
-    
+
     return total_weighted_density / max(total_weight, 1.0)
 
 
@@ -510,63 +526,53 @@ def get_prioritized_extensions(
     )
 
 
-def calculate_segment_explanation_bonus(
-    ship_len: int, hit_segments: List[List[Position]]
-) -> float:
-    if not hit_segments:
-        return 1.0
-    bonus = 1.0
-    for seg in hit_segments:
-        seg_len = len(seg)
-        if ship_len == seg_len:
-            bonus *= 3.0
-        elif ship_len > seg_len:
-            bonus *= 2.0
-        else:
-            bonus *= 0.5
-    return bonus
-
-
 def compute_integrated_probability_grid(state: GameState) -> np.ndarray:
     prob_grid = compute_probability_grid_heuristic(state)
-    
+
     hit_segments = find_all_hit_segments(state)
-    
+
     if not hit_segments:
-        prob_grid = apply_parity_strategy(prob_grid, state, boost=1.15, near_hits_boost=1.05)
-        
+        prob_grid = apply_parity_strategy(
+            prob_grid, state, boost=1.15, near_hits_boost=1.05
+        )
+
         prob_grid = enhance_with_density(prob_grid, state)
-    
+
     prob_grid[state.grid != UNKNOWN] = 0.0
-    
+
     total = prob_grid.sum()
     if total > 0:
         prob_grid /= total
-    
+
     return prob_grid
 
 
-def get_move_with_uncertainty_consideration(state: GameState) -> Optional[Position]:
+def get_move_with_uncertainty_consideration(
+    state: GameState,
+) -> Optional[Position]:
     hit_segments = find_all_hit_segments(state)
     for seg in hit_segments:
         extensions = get_prioritized_extensions(seg, state)
         if extensions:
             return extensions[0][0]
-    
+
     prob_grid = compute_integrated_probability_grid(state)
     info_grid = compute_information_gain(state)
-    
+
     combined_score = 0.7 * prob_grid + 0.3 * info_grid
-    
+
     max_score = 0.0
     best_position = None
-    
+
     for r in range(state.grid_size):
         for c in range(state.grid_size):
-            if state.grid[r, c] == UNKNOWN and combined_score[r, c] > max_score:
+            if (
+                state.grid[r, c] == UNKNOWN
+                and combined_score[r, c] > max_score
+            ):
                 max_score = combined_score[r, c]
                 best_position = Position(r, c)
-    
+
     return best_position
 
 
@@ -662,7 +668,9 @@ def validate_game_state(state: GameState) -> List[str]:
 
 
 def format_positions(pos: List[Position]) -> str:
-    return ", ".join(f"{chr(ord('A') + p.col)}{p.row + 1}" for p in sorted(pos))
+    return ", ".join(
+        f"{chr(ord('A') + p.col)}{p.row + 1}" for p in sorted(pos)
+    )
 
 
 def parse_position(s: str) -> Position:
@@ -687,7 +695,9 @@ def get_remaining_ship_count(state: GameState) -> int:
     return sum(state.ships.values())
 
 
-def print_grid(state: GameState, show_moves: bool = False, move_cnt: int = 0) -> None:
+def print_grid(
+    state: GameState, show_moves: bool = False, move_cnt: int = 0
+) -> None:
     symbols = {
         UNKNOWN: (".", Style.RESET_ALL),
         MISS: ("M", Fore.BLUE),
@@ -696,7 +706,9 @@ def print_grid(state: GameState, show_moves: bool = False, move_cnt: int = 0) ->
     }
     grid_size = state.grid_size
 
-    header = "    " + " ".join(f"{chr(ord('A') + c):^3}" for c in range(grid_size))
+    header = "    " + " ".join(
+        f"{chr(ord('A') + c):^3}" for c in range(grid_size)
+    )
     print("\n" + header)
 
     separator = "   +" + "---+" * grid_size
@@ -787,6 +799,7 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
     plt.tight_layout()
     plt.show()
 
+
 def main() -> None:
     hist = create_initial_history(create_initial_state())
     print("BATTLESHIT")
@@ -821,7 +834,9 @@ def main() -> None:
                 print("ok cya")
                 break
             if parts[0] == "man":
-                print("Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  ai - suggestion for next move\n  show - Display board\n  vld - Validate current state\n  prb - Show probability heatmap (integrated)\n  inf - Show information‑gain heatmap\n  und / red - Time‑travel moves\n  hist - List moves\n  rst - Restart game\n  man - Show help\n  quit - Exit")
+                print(
+                    "Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  ai - suggestion for next move\n  show - Display board\n  vld - Validate current state\n  prb - Show probability heatmap (integrated)\n  inf - Show information‑gain heatmap\n  und / red - Time‑travel moves\n  hist - List moves\n  rst - Restart game\n  man - Show help\n  quit - Exit"
+                )
             elif parts[0] == "und":
                 if can_undo(hist):
                     hist, _ = undo_state(hist)
@@ -888,7 +903,9 @@ def main() -> None:
                     if find_all_hit_segments(get_current_state(hist))
                     else "searching"
                 )
-                print(f"Suggested: {pos_str} | Strategy: {strategy} | Probability: {prob:.1%}")
+                print(
+                    f"Suggested: {pos_str} | Strategy: {strategy} | Probability: {prob:.1%}"
+                )
             else:
                 # shot result input
                 if len(parts) < 2:
