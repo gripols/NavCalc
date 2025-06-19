@@ -2,3 +2,4 @@ colorama
 matplotlib
 numpy
 typing
+PyQt6

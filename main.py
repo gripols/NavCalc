@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
-import copy
-import math
-import operator
+"""One big beautiful monolithic file."""
+
+import sys
+
 from collections import namedtuple
-from functools import partial, reduce, lru_cache
-from itertools import chain, product
+from functools import lru_cache
 from typing import Dict, Iterator, List, Optional, Set, Tuple
 from colorama import Fore, Style
 
@@ -12,20 +11,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-# FIXME:
-# - Никаких вложенных циклов
-# - Написать документацию
-# - Используйте команды--максимум 3 букв
-# - Добавить Пояснения к Стратегиям
-
-
-# immutable like structs
 Position = namedtuple("Position", ["row", "col"])
 Ship = namedtuple("Ship", ["length", "count"])
 GameState = namedtuple("GameState", ["grid", "ships", "grid_size"])
 ShotResult = namedtuple("ShotResult", ["position", "outcome"])
 
-# history structs
+
 GameAction = namedtuple("GameAction", ["position", "result", "description"])
 GameHistory = namedtuple("GameHistory", ["states", "actions", "current_index"])
 
@@ -38,16 +29,19 @@ DEFAULT_SHIPS: Dict[int, int] = {4: 1, 3: 2, 2: 3, 1: 4}
 
 
 def create_empty_grid(size: int) -> np.ndarray:
+    """Create an empty game grid of the specified size"""
     return np.zeros((size, size), dtype=int)
 
 
 def is_valid_position(pos: Position, grid_size: int) -> bool:
+    """Check if the given position is within grid bounds"""
     return 0 <= pos.row < grid_size and 0 <= pos.col < grid_size
 
 
 def create_initial_state(
     grid_size: int = DEFAULT_GRID_SIZE, ships: Optional[Dict[int, int]] = None
 ) -> GameState:
+    """Initialize a new GameState with empty grid and default ships"""
     ships = ships or DEFAULT_SHIPS.copy()
     return GameState(
         grid=create_empty_grid(grid_size), ships=ships, grid_size=grid_size
@@ -55,28 +49,33 @@ def create_initial_state(
 
 
 def create_initial_history(initial_state: GameState) -> GameHistory:
+    """Create an initial history object with a single starting state"""
     return GameHistory(states=[initial_state], actions=[], current_index=0)
 
 
 def add_state_to_history(
     history: GameHistory, new_state: GameState, action: GameAction
 ) -> GameHistory:
+    """Append a new state and action to the game history timeline"""
     states = history.states[: history.current_index + 1]
     actions = history.actions[: history.current_index + 1]  # keep them in sync
     return GameHistory(states + [new_state], actions + [action], len(states))
 
 
 def can_undo(history: GameHistory) -> bool:
+    """Checks if you can undo."""
     return history.current_index > 0
 
 
 def can_redo(history: GameHistory) -> bool:
+    """Checks if you can redo"""
     return history.current_index < len(history.states) - 1
 
 
 def undo_state(
     history: GameHistory,
 ) -> Tuple[GameHistory, Optional[GameState]]:
+    """Revert to the previous game state if undo is possible"""
     if not can_undo(history):
         return history, None
     new_index = history.current_index - 1
@@ -89,6 +88,7 @@ def undo_state(
 def redo_state(
     history: GameHistory,
 ) -> Tuple[GameHistory, Optional[GameState]]:
+    """Revert to the previous game state if undo is possible."""
     if not can_redo(history):
         return history, None
     new_index = history.current_index + 1
@@ -99,10 +99,12 @@ def redo_state(
 
 
 def get_current_state(history: GameHistory) -> GameState:
+    """Return the currently active state from history."""
     return history.states[history.current_index]
 
 
 def get_last_action(history: GameHistory) -> Optional[GameAction]:
+    """Return the most recent GameAction from history, or None if at start."""
     if history.current_index == 0:
         return None
     return history.actions[history.current_index - 1]
@@ -111,6 +113,7 @@ def get_last_action(history: GameHistory) -> Optional[GameAction]:
 def get_ship_positions(
     start: Position, length: int, vertical: bool
 ) -> List[Position]:
+    """Generate a list of ship cell positions given a start, length, and orientation."""
     return (
         [Position(start.row + i, start.col) for i in range(length)]
         if vertical
@@ -121,6 +124,7 @@ def get_ship_positions(
 def get_adjacent_positions(
     positions: List[Position], grid_size: int
 ) -> Set[Position]:
+    """Return all grid positions adjacent to a set of positions."""
     pos_set = set(positions)
     adj: Set[Position] = set()
 
@@ -144,6 +148,7 @@ def get_adjacent_positions(
 def can_place_ship(
     state: GameState, start: Position, length: int, vertical: bool
 ) -> bool:
+    """Check if a ship of given length can be placed at a position without violating rules."""
     ship_cells = get_ship_positions(start, length, vertical)
 
     # bounds + collision check
@@ -165,6 +170,7 @@ def _expand_segment(
     visited: Set[Position],
     target: Set[int],
 ) -> Set[Position]:
+    """Expand a frontier of positions using DFS to find a connected cluster of target values."""
     stack: List[Position] = list(frontier)
     while stack:
         head = stack.pop()
@@ -186,10 +192,12 @@ def _expand_segment(
 def find_connected_positions(
     state: GameState, start: Position, target_states: Set[int]
 ) -> List[Position]:
+    """Find all positions connected to a start position with values in target_states."""
     return sorted(_expand_segment(state, [start], set(), target_states))
 
 
 def find_all_hit_segments(state: GameState) -> List[List[Position]]:
+    """Group contiguous HIT cells into distinct segments on the grid."""
     segments: List[List[Position]] = []
     visited: Set[Position] = set()
     for r in range(state.grid_size):
@@ -206,6 +214,8 @@ def find_all_hit_segments(state: GameState) -> List[List[Position]]:
 def _precomputed_placements_and_adjacents(
     grid_size: int, ship_length: int
 ) -> List[Tuple[Tuple[Position, ...], Set[Position]]]:
+    """Precompute legal ship placements and
+    their adjacency masks for a given grid and ship length."""
     placements_with_adj = []
     for r in range(grid_size):
         for c in range(grid_size - ship_length + 1):
@@ -223,6 +233,8 @@ def _precomputed_placements_and_adjacents(
 def generate_all_ship_placements(
     state: GameState, ship_length: int
 ) -> Iterator[List[Position]]:
+    """Yield all legal placements for a given ship length under current 
+    grid constraints."""
     grid = state.grid
     size = state.grid_size
 
@@ -255,6 +267,7 @@ def generate_all_ship_placements(
 def calculate_placement_weight(
     placement: List[Position], hit_segments: List[List[Position]]
 ) -> float:
+    """Evaluate how well a ship placement explains existing HIT segments."""
     if not hit_segments:
         return 1.0
 
@@ -289,6 +302,7 @@ def calculate_placement_weight(
 
 
 def compute_probability_grid_heuristic(state: GameState) -> np.ndarray:
+    """Compute a probability heatmap for where ships are most likely to be."""
     grid = np.zeros((state.grid_size, state.grid_size), dtype=float)
     hit_segments = find_all_hit_segments(state)
 
@@ -319,6 +333,8 @@ def compute_probability_grid_heuristic(state: GameState) -> np.ndarray:
 
 
 def compute_information_gain(state: GameState) -> np.ndarray:
+    """Compute an entropy-based heatmap representing information 
+    gain of each shot."""
     base_probs = compute_probability_grid_heuristic(state)
     info_gain = np.zeros_like(base_probs)
 
@@ -327,11 +343,10 @@ def compute_information_gain(state: GameState) -> np.ndarray:
             if state.grid[r, c] != UNKNOWN:
                 continue
 
-            pos = Position(r, c)
             p_hit = base_probs[r, c]
             p_miss = 1.0 - p_hit
 
-            if p_hit > 0 and p_hit < 1:
+            if 0 < p_hit < 1:
                 current_entropy = -(
                     p_hit * np.log2(p_hit) + p_miss * np.log2(p_miss)
                 )
@@ -340,7 +355,6 @@ def compute_information_gain(state: GameState) -> np.ndarray:
 
             info_gain[r, c] = current_entropy
 
-    # normalize
     total = info_gain.sum()
     if total > 0:
         info_gain /= total
@@ -349,20 +363,15 @@ def compute_information_gain(state: GameState) -> np.ndarray:
 
 
 def calculate_remaining_ship_constraints(state: GameState) -> Dict[int, float]:
+    """Return the relative count of remaining ships normalized to 1.0 total."""
     total = sum(state.ships.values())
     if total == 0:
         return {length: 0.0 for length in state.ships}
     return {length: count / total for length, count in state.ships.items()}
 
 
-def apply_statistical_patterns(
-    grid: np.ndarray, state: GameState
-) -> np.ndarray:
-    # placeholder if I want more later (fuck no)
-    return grid
-
-
 def get_parity_positions(grid_size: int, parity: int) -> List[Position]:
+    """Get all grid positions with a specific parity (checkerboard pattern)."""
     return [
         Position(r, c)
         for r in range(grid_size)
@@ -372,8 +381,7 @@ def get_parity_positions(grid_size: int, parity: int) -> List[Position]:
 
 
 def get_optimal_parity_for_ships(ships: Dict[int, int]) -> int:
-    total_ship_cells = sum(length * count for length, count in ships.items())
-
+    """Determine which parity (even/odd) best matches the current fleet."""
     single_cells = ships.get(1, 0)
     multi_cell_ships = sum(
         count for length, count in ships.items() if length > 1
@@ -385,6 +393,8 @@ def get_optimal_parity_for_ships(ships: Dict[int, int]) -> int:
 
 
 def build_coverage_maps(state: GameState) -> Dict[int, np.ndarray]:
+    """Build a coverage map for each ship length showing placement 
+    frequency per cell."""
     cov = {}
     for ln, cnt in state.ships.items():
         if cnt <= 0:
@@ -399,6 +409,8 @@ def build_coverage_maps(state: GameState) -> Dict[int, np.ndarray]:
 
 # this should fix it (I think)
 def apply_parity_strategy(grid, state, boost=1.2, near_hits_boost=1.05):
+    """Apply parity-based weighting to the probability grid for better 
+    exploration coverage."""
     result = grid.copy()
     has_hits = np.any(state.grid == HIT)
     parity = get_optimal_parity_for_ships(state.ships)
@@ -417,41 +429,42 @@ def calculate_density_multiplier(
     cov_maps: Dict[int, np.ndarray],
     window: int = 3,
 ) -> float:
-    r0, c0 = pos
-    total_weighted_density = 0.0
-    total_weight = 0.0
+    """Compute a boost multiplier based on local ship placement density."""
 
-    for ship_length, coverage_map in cov_maps.items():
-        ship_count = state.ships[ship_length]
-        if ship_count <= 0:
+    def get_region(map_: np.ndarray) -> np.ndarray:
+        """Return a square region around pos from the given coverage map."""
+        r0 = max(0, pos[0] - window)
+        r1 = min(state.grid_size, pos[0] + window + 1)
+        c0 = max(0, pos[1] - window)
+        c1 = min(state.grid_size, pos[1] + window + 1)
+        return map_[r0:r1, c0:c1]
+
+    weighted_sum = 0.0
+    weight_total = 0.0
+
+    for length, count in state.ships.items():
+        if count <= 0:
             continue
 
-        r_start = max(0, r0 - window)
-        r_end = min(state.grid_size, r0 + window + 1)
-        c_start = max(0, c0 - window)
-        c_end = min(state.grid_size, c0 + window + 1)
-
-        local_region = coverage_map[r_start:r_end, c_start:c_end]
-
-        if local_region.size == 0:
+        region = get_region(cov_maps[length])
+        if region.size == 0:
             continue
 
-        local_density = local_region.sum() / local_region.size
-        max_possible = local_region.max()
+        max_val = region.max()
+        if max_val == 0:
+            continue
 
-        if max_possible > 0:
-            normalized_density = local_density / max_possible
-        else:
-            normalized_density = 0.0
+        norm_density = region.sum() / (region.size * max_val)
+        weight = count * length
 
-        weight = ship_count * ship_length
-        total_weighted_density += normalized_density * weight
-        total_weight += weight
+        weighted_sum += norm_density * weight
+        weight_total += weight
 
-    return total_weighted_density / max(total_weight, 1.0)
+    return weighted_sum / weight_total if weight_total else 0.0
 
 
 def enhance_with_density(grid: np.ndarray, state: GameState) -> np.ndarray:
+    """Boost probability scores based on local ship density in a moving window."""
     cov_maps = build_coverage_maps(state)
     mult = np.zeros_like(grid)
     for r in range(state.grid_size):
@@ -466,6 +479,7 @@ def enhance_with_density(grid: np.ndarray, state: GameState) -> np.ndarray:
 def get_segment_extensions(
     segment: List[Position], state: GameState
 ) -> List[Position]:
+    """Get potential extension points for a segment to complete a ship (linearly)."""
     if len(segment) == 1:
         p = segment[0]
         dirs = [(0, 1), (0, -1), (1, 0), (-1, 0)]
@@ -477,7 +491,7 @@ def get_segment_extensions(
             )
             and state.grid[p.row + dr, p.col + dc] == UNKNOWN
         ]
-    # multi cell extend linearly
+
     seg_sorted = sorted(segment)
     if seg_sorted[0].row == seg_sorted[1].row:  # horiz
         row = seg_sorted[0].row
@@ -489,43 +503,47 @@ def get_segment_extensions(
             if is_valid_position(Position(row, col), state.grid_size)
             and state.grid[row, col] == UNKNOWN
         ]
-    else:  # vertical
-        col = seg_sorted[0].col
-        rows = sorted(p.row for p in seg_sorted)
-        exts = [rows[0] - 1, rows[-1] + 1]
-        return [
-            Position(row, col)
-            for row in exts
-            if is_valid_position(Position(row, col), state.grid_size)
-            and state.grid[row, col] == UNKNOWN
-        ]
+
+    col = seg_sorted[0].col
+    rows = sorted(p.row for p in seg_sorted)
+    exts = [rows[0] - 1, rows[-1] + 1]
+    return [
+        Position(row, col)
+        for row in exts
+        if is_valid_position(Position(row, col), state.grid_size)
+        and state.grid[row, col] == UNKNOWN
+    ]
 
 
 def can_continue_in_direction(
     segment: List[Position], ext: Position, target_len: int, state: GameState
 ) -> bool:
+    """Check if a segment could be extended to reach a full ship length 
+    in a given direction."""
     seg_sorted = sorted(segment)
     if len(segment) < 2:
         return True  # single hit direction not fixed
+
     if seg_sorted[0].row == seg_sorted[1].row:  # horiz
-        row = seg_sorted[0].row
         cols = sorted([p.col for p in seg_sorted] + [ext.col])
         needed = target_len - len(segment) - 1
         left_space = cols[0]
         right_space = state.grid_size - 1 - cols[-1]
         return left_space + right_space >= needed
-    else:  # vertical
-        col = seg_sorted[0].col
-        rows = sorted([p.row for p in seg_sorted] + [ext.row])
-        needed = target_len - len(segment) - 1
-        top = rows[0]
-        bottom = state.grid_size - 1 - rows[-1]
-        return top + bottom >= needed
+
+    _col = seg_sorted[0].col
+    rows = sorted([p.row for p in seg_sorted] + [ext.row])
+    needed = target_len - len(segment) - 1
+    top = rows[0]
+    bottom = state.grid_size - 1 - rows[-1]
+    return top + bottom >= needed
 
 
 def calculate_segment_completion_probability(
     segment: List[Position], state: GameState
 ) -> Dict[Position, float]:
+    """Estimate the likelihood that extending a segment at each candidate will 
+    complete a ship."""
     exts = get_segment_extensions(segment, state)
     if not exts:
         return {}
@@ -551,6 +569,8 @@ def calculate_segment_completion_probability(
 def get_prioritized_extensions(
     segment: List[Position], state: GameState
 ) -> List[Tuple[Position, float]]:
+    """Return segment extension positions sorted by probability of completing 
+    a ship."""
     return sorted(
         calculate_segment_completion_probability(segment, state).items(),
         key=lambda kv: kv[1],
@@ -559,6 +579,8 @@ def get_prioritized_extensions(
 
 
 def compute_integrated_probability_grid(state: GameState) -> np.ndarray:
+    """Generate a normalized probability grid that
+    incorporates heuristic, entropy, and strategy layers."""
     prob_grid = compute_probability_grid_heuristic(state)
 
     hit_segments = find_all_hit_segments(state)
@@ -582,6 +604,8 @@ def compute_integrated_probability_grid(state: GameState) -> np.ndarray:
 def get_move_with_uncertainty_consideration(
     state: GameState,
 ) -> Optional[Position]:
+    """Choose the next best move by combining probability and information gain 
+    heuristics."""
     hit_segments = find_all_hit_segments(state)
     for seg in hit_segments:
         extensions = get_prioritized_extensions(seg, state)
@@ -608,6 +632,8 @@ def get_move_with_uncertainty_consideration(
 def place_ship_on_grid(
     grid: np.ndarray, positions: List[Position]
 ) -> np.ndarray:
+    """Mark all given positions on the grid as HIT and return the updated grid 
+    copy."""
     g = grid.copy()
     for p in positions:
         g[p.row, p.col] = HIT
@@ -617,6 +643,8 @@ def place_ship_on_grid(
 def mark_adjacent_as_blocked(
     grid: np.ndarray, positions: List[Position], grid_size: int
 ) -> np.ndarray:
+    """Mark all adjacent positions as MISS around a list of positions, 
+    returning a new grid."""
     g = grid.copy()
     for q in get_adjacent_positions(positions, grid_size):
         if g[q.row, q.col] == UNKNOWN:
@@ -625,6 +653,8 @@ def mark_adjacent_as_blocked(
 
 
 def update_cell(state: GameState, pos: Position, result: str) -> GameState:
+    """Update the grid state with a new result (hit/miss/sunk) and return 
+    updated GameState."""
     g = state.grid.copy()
     if result == "hit":
         g[pos.row, pos.col] = HIT
@@ -640,6 +670,8 @@ def update_cell(state: GameState, pos: Position, result: str) -> GameState:
 def handle_sunk_ship(
     grid: np.ndarray, sunk_pos: Position, ships: Dict[int, int], grid_size: int
 ) -> Tuple[np.ndarray, Dict[int, int]]:
+    """Handle sunk ship logic: mark cells, block neighbors, and decrement 
+    ship count."""
     ship_cells = find_connected_positions(
         GameState(grid, ships, grid_size), sunk_pos, {HIT, SUNK}
     )
@@ -655,6 +687,8 @@ def handle_sunk_ship(
 
 
 def is_straight_line(positions: List[Position]) -> bool:
+    """Check if a list of positions form a valid straight line (horizontal 
+    or vertical)."""
     if len(positions) <= 1:
         return True
     pos_sorted = sorted(positions)
@@ -668,6 +702,8 @@ def is_straight_line(positions: List[Position]) -> bool:
 
 
 def validate_game_state(state: GameState) -> List[str]:
+    """Validate the current game grid for rule violations (adjacency, shape,
+    direction)."""
     errs: List[str] = []
     all_ship_cells = [
         Position(r, c)
@@ -697,10 +733,12 @@ def validate_game_state(state: GameState) -> List[str]:
 
 
 def format_positions(pos: List[Position]) -> str:
+    """Format a list of Position objects as human-readable strings like 'B5'."""
     return ", ".join(f"{chr(ord('A') + p.col)}{p.row + 1}" for p in sorted(pos))
 
 
 def parse_position(s: str) -> Position:
+    """Convert user input like 'A5' into a Position object."""
     s = s.strip().upper()
     if len(s) < 2:
         raise ValueError("position must be at least 2 characters")
@@ -715,16 +753,19 @@ def parse_position(s: str) -> Position:
 
 
 def is_game_complete(state: GameState) -> bool:
+    """Check whether all ships have been sunk."""
     return sum(state.ships.values()) == 0
 
 
 def get_remaining_ship_count(state: GameState) -> int:
+    """Count how many ships remain afloat."""
     return sum(state.ships.values())
 
 
 def print_grid(
     state: GameState, show_moves: bool = False, move_cnt: int = 0
 ) -> None:
+    """Prints the current game grid with symbols and move count"""
     symbols = {
         UNKNOWN: (".", Style.RESET_ALL),
         MISS: ("M", Fore.BLUE),
@@ -744,7 +785,9 @@ def print_grid(
     for r in range(grid_size):
         row_label = f"{r + 1:2} |"
         row_cells = "".join(
-            f" {symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[1]}{symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[0]}{Style.RESET_ALL} |"
+            f" {symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[1]}"
+            f"{symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[0]}"
+            f"{Style.RESET_ALL} |"
             for c in range(grid_size)
         )
         print(row_label + row_cells)
@@ -771,6 +814,7 @@ def print_grid(
 
 
 def print_history_status(history: GameHistory) -> None:
+    """Display undo/redo availability and current move index from history."""
     print(
         f"history: Move {history.current_index}/{len(history.states) - 1} | "
         f"undo: {'yes' if can_undo(history) else 'no'} | "
@@ -779,11 +823,12 @@ def print_history_status(history: GameHistory) -> None:
 
 
 def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
+    """Display a matplotlib heatmap over the game grid"""
     max_val = np.max(data)
     if max_val == 0:
         print("no data to plot")
         return
-    fig, ax = plt.subplots(figsize=(10, 8))
+    _fig, ax = plt.subplots(figsize=(10, 8))
     hm = ax.imshow(
         data, cmap="YlOrRd", interpolation="nearest", vmin=0, vmax=max_val
     )
@@ -827,13 +872,179 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
     plt.show()
 
 
-def main() -> None:
-    hist = create_initial_history(create_initial_state())
+def print_welcome():
+    """Print the game banner and list of available commands."""
     print("BATTLESHIT")
     print("UNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'\n")
     print(
-        "Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  ai - suggestion for next move\n  show - Display board\n  vld - Validate current state\n  prb - Show probability heatmap (integrated)\n  inf - Show information‑gain heatmap\n  und/red - Time‑travel moves\n  hist - List moves\n  rst - Restart game\n  man - Show help\n  quit - Exit"
+        "Cmds:\n"
+        "  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n"
+        "  ai    - Suggest next move\n"
+        "  show  - Display board\n"
+        "  vld   - Validate current state\n"
+        "  prb   - Show probability heatmap\n"
+        "  inf   - Show information‑gain heatmap\n"
+        "  und   - Undo\n"
+        "  red   - Redo\n"
+        "  hist  - Move history\n"
+        "  rst   - Restart game\n"
+        "  man   - Show help\n"
+        "  quit  - Exit"
     )
+
+
+def handle_quit(_hist, _parts):
+    """handles quitting"""
+    print("ok cya")
+    sys.exit(0)
+
+
+def handle_help(hist, _parts):
+    """shows man"""
+    print_welcome()
+    return hist
+
+
+def handle_undo(hist, _parts):
+    """undo last move if possible"""
+    if can_undo(hist):
+        hist, _ = undo_state(hist)
+        print_grid(get_current_state(hist), True, hist.current_index)
+        print_history_status(hist)
+    else:
+        print("nothing to undo")
+    return hist
+
+
+def handle_redo(hist, _parts):
+    """redo last move if possible"""
+    if can_redo(hist):
+        hist, _ = redo_state(hist)
+        print_grid(get_current_state(hist), True, hist.current_index)
+        print_history_status(hist)
+    else:
+        print("nothing to redo")
+    return hist
+
+
+def handle_hist(hist, _parts):
+    """display move history. potential addition to this would
+    be different markers so people can see them pretty clearly"""
+    print("\nMove History:")
+    print("  0: Initial state")
+    for i, act in enumerate(hist.actions, 1):
+        marker = "*" if i == hist.current_index else " "
+        print(f"{marker} {i}: {act.description}")
+    return hist
+
+
+def handle_validate(hist, _parts):
+    """validates the current game state (adjacency, alignment, weird shapes, etc)"""
+    errs = validate_game_state(get_current_state(hist))
+    if errs:
+        print("\n".join(["Errors:"] + [f"- {e}" for e in errs]))
+    else:
+        print("its valid you good bro")
+    return hist
+
+
+def handle_show(hist, _parts):
+    """prints the current game grid"""
+    print_grid(get_current_state(hist), True, hist.current_index)
+    print_history_status(hist)
+    return hist
+
+
+def handle_reset(_hist, _parts):
+    """handles resetting the game to its initial state"""
+    print("Game reset")
+    return create_initial_history(create_initial_state())
+
+
+def handle_probability(hist, _parts):
+    """handles displaying the probability heatmap"""
+    state = get_current_state(hist)
+    pg = compute_integrated_probability_grid(state)
+    plot_heatmap(state, pg, "Integrated Ship Probability")
+    return hist
+
+
+def handle_information(hist, _parts):
+    """handles displaying the info gain heatmap"""
+    state = get_current_state(hist)
+    ig = compute_information_gain(state)
+    plot_heatmap(state, ig, "Information Gain (Entropy)")
+    return hist
+
+
+def handle_ai(hist, _parts):
+    """suggests the next best move"""
+    state = get_current_state(hist)
+    move = get_move_with_uncertainty_consideration(state)
+    if move is None:
+        print("no legal moves found so somethings wrong")
+        return hist
+
+    pos_str = f"{chr(ord('A') + move.col)}{move.row + 1}"
+    prob = compute_integrated_probability_grid(state)[move.row, move.col]
+    strategy = (
+        "following up on hits" if find_all_hit_segments(state) else "searching"
+    )
+    print(
+        f"Suggested: {pos_str} | Strategy: {strategy} | Probability: {prob:.1%}"
+    )
+    return hist
+
+
+def handle_shot_command(hist, parts):
+    """handles user input for recording shots"""
+    if len(parts) < 2:
+        print("usage: [pos] [hit/miss/sunk]")
+        return hist
+    pos_tok, res = parts[0], parts[1]
+    if res not in ("hit", "miss", "sunk"):
+        print("result must be hit/miss/sunk")
+        return hist
+    try:
+        pos = parse_position(pos_tok)
+    except ValueError as exc:
+        print(f"{exc}")
+        return hist
+
+    state = get_current_state(hist)
+    if state.grid[pos.row][pos.col] != UNKNOWN:
+        print("alr shot there")
+        return hist
+
+    new_state = update_cell(state, pos, res)
+    act = GameAction(
+        position=pos, result=res, description=f"{pos_tok.upper()} {res}"
+    )
+    hist = add_state_to_history(hist, new_state, act)
+    print_grid(new_state, True, hist.current_index)
+    print_history_status(hist)
+    return hist
+
+
+COMMANDS = {
+    "quit": handle_quit,
+    "man": handle_help,
+    "und": handle_undo,
+    "red": handle_redo,
+    "hist": handle_hist,
+    "vld": handle_validate,
+    "show": handle_show,
+    "rst": handle_reset,
+    "prb": handle_probability,
+    "inf": handle_information,
+    "ai": handle_ai,
+}
+
+
+def main():
+    """main loop of the cli"""
+    hist = create_initial_history(create_initial_state())
+    print_welcome()
 
     while True:
         try:
@@ -849,119 +1060,26 @@ def main() -> None:
                 if cmd == "reset":
                     hist = create_initial_history(create_initial_state())
                     continue
+
             inp = input("> ").strip().lower()
+            if not inp:
+                continue
+
+            parts = inp.split()
+            cmd = parts[0]
+
+            if cmd in COMMANDS:
+                hist = COMMANDS[cmd](hist, parts)
+            else:
+                hist = handle_shot_command(hist, parts)
+
         except (EOFError, KeyboardInterrupt):
             print("\nalr vro cya")
             break
-        if not inp:
-            continue
-        parts = inp.split()
-        try:
-            if parts[0] == "quit":
-                print("ok cya")
-                break
-            if parts[0] == "man":
-                print(
-                    "Cmds:\n  [pos] [hit/miss/sunk] - Record shot (e.g. 'A4 hit')\n  ai - suggestion for next move\n  show - Display board\n  vld - Validate current state\n  prb - Show probability heatmap (integrated)\n  inf - Show information‑gain heatmap\n  und / red - Time‑travel moves\n  hist - List moves\n  rst - Restart game\n  man - Show help\n  quit - Exit"
-                )
-            elif parts[0] == "und":
-                if can_undo(hist):
-                    hist, _ = undo_state(hist)
-                    print_grid(
-                        get_current_state(hist), True, hist.current_index
-                    )
-                    print_history_status(hist)
-                else:
-                    print("nothing to undo")
-            elif parts[0] == "red":
-                if can_redo(hist):
-                    hist, _ = redo_state(hist)
-                    print_grid(
-                        get_current_state(hist), True, hist.current_index
-                    )
-                    print_history_status(hist)
-                else:
-                    print("nothing to redo")
-            elif parts[0] == "hist":
-                print("\nMove History:")
-                print("  0: Initial state")
-                for i, act in enumerate(hist.actions, 1):
-                    marker = "*" if i == hist.current_index else " "
-                    print(f"{marker} {i}: {act.description}")
-            elif parts[0] == "vld":
-                errs = validate_game_state(get_current_state(hist))
-                print(
-                    "its valid you good bro"
-                    if not errs
-                    else "\n".join(["Errors:"] + [f"- {e}" for e in errs])
-                )
-            elif parts[0] == "show":
-                print_grid(get_current_state(hist), True, hist.current_index)
-                print_history_status(hist)
-            elif parts[0] == "rst":
-                hist = create_initial_history(create_initial_state())
-                print("Game reset")
-            elif parts[0] == "prb":
-                pg = compute_integrated_probability_grid(
-                    get_current_state(hist)
-                )
-                plot_heatmap(
-                    get_current_state(hist), pg, "Integrated Ship Probability"
-                )
-            elif parts[0] == "inf":
-                ig = compute_information_gain(get_current_state(hist))
-                plot_heatmap(
-                    get_current_state(hist), ig, "Information Gain (Entropy)"
-                )
-            elif parts[0] == "ai":
-                move = get_move_with_uncertainty_consideration(
-                    get_current_state(hist)
-                )
-                if move is None:
-                    print("no legal moves found so somethings wrong")
-                    continue
-                pos_str = f"{chr(ord('A') + move.col)}{move.row + 1}"
-                pgrid = compute_integrated_probability_grid(
-                    get_current_state(hist)
-                )
-                prob = pgrid[move.row, move.col]
-                strategy = (
-                    "following up on hits"
-                    if find_all_hit_segments(get_current_state(hist))
-                    else "searching"
-                )
-                print(
-                    f"Suggested: {pos_str} | Strategy: {strategy} | Probability: {prob:.1%}"
-                )
-            else:
-                # shot result input
-                if len(parts) < 2:
-                    print("usage: [pos] [hit/miss/sunk]")
-                    continue
-                pos_tok, res = parts[0], parts[1]
-                if res not in ("hit", "miss", "sunk"):
-                    print("result must be hit/miss/sunk")
-                    continue
-                try:
-                    pos = parse_position(pos_tok)
-                except ValueError as exc:
-                    print(f"{exc}")
-                    continue
-                state = get_current_state(hist)
-                if state.grid[pos.row][pos.col] != UNKNOWN:
-                    print("alr shot there")
-                    continue
-                new_state = update_cell(state, pos, res)
-                act = GameAction(
-                    position=pos,
-                    result=res,
-                    description=f"{pos_tok.upper()} {res}",
-                )
-                hist = add_state_to_history(hist, new_state, act)
-                print_grid(new_state, True, hist.current_index)
-                print_history_status(hist)
-        except Exception as exc:
+        except (ValueError, IndexError) as exc:
             print(f"Error: {exc}")
+        # except Exception as exc:
+        #   print(f"Error: {exc}")
 
 
 if __name__ == "__main__":
