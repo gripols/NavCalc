@@ -774,25 +774,27 @@ def print_grid(
     }
     grid_size = state.grid_size
 
-    header = "    " + " ".join(
-        f"{chr(ord('A') + c):^3}" for c in range(grid_size)
-    )
-    print("\n" + header)
-
     separator = "   +" + "---+" * grid_size
-    print(separator)
 
-    for r in range(grid_size):
+    print(separator)
+    # Print rows bottom to top to match matplotlib invert_yaxis
+    for r in reversed(range(grid_size)):
         row_label = f"{r + 1:2} |"
-        row_cells = "".join(
-            f" {symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[1]}"
-            f"{symbols.get(state.grid[r, c], ('?', Style.RESET_ALL))[0]}"
-            f"{Style.RESET_ALL} |"
-            for c in range(grid_size)
-        )
+        row_cells = ""
+        for c in range(grid_size):
+            cell_value = state.grid[r, c]
+            symbol, color = symbols.get(cell_value, ("?", Style.RESET_ALL))
+            row_cells += f" {color}{symbol}{Style.RESET_ALL} |"
         print(row_label + row_cells)
         print(separator)
 
+    # Now print the column letters at the bottom only
+    header = "    " + " ".join(
+        f"{chr(ord('A') + c):^3}" for c in range(grid_size)
+    )
+    print(header)
+
+    # Legend and remaining info as before
     print("\nLegend:")
     print(f"  {Style.RESET_ALL}. = Unknown")
     print(f"  {Fore.BLUE}M = Miss{Style.RESET_ALL}")
@@ -804,13 +806,13 @@ def print_grid(
         for ln, cnt in sorted(state.ships.items(), reverse=True)
         if cnt > 0
     ]
-    info = f"Remaining ships: {', '.join(remaining) if remaining else 'All ships sunk!'}"
+    info = f"Remaining ships: {', '.join(remaining) if remaining else 'All ships kaput!'}"
     if show_moves:
         info += f" | Moves: {move_cnt}"
     print("\n" + info)
 
     if is_game_complete(state):
-        print("All ships have been sunk!")
+        print("All ships are kaput!")
 
 
 def print_history_status(history: GameHistory) -> None:
@@ -828,10 +830,11 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
     if max_val == 0:
         print("no data to plot")
         return
-    _fig, ax = plt.subplots(figsize=(10, 8))
+    fig, ax = plt.subplots(figsize=(10, 8))
     hm = ax.imshow(
         data, cmap="YlOrRd", interpolation="nearest", vmin=0, vmax=max_val
     )
+    # plot values inside cells
     for r in range(state.grid_size):
         for c in range(state.grid_size):
             v = data[r, c]
@@ -846,6 +849,7 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
                     fontsize=8,
                     weight="bold",
                 )
+    # plot markers for MISS, HIT, SUNK
     for r in range(state.grid_size):
         for c in range(state.grid_size):
             cell = state.grid[r, c]
@@ -856,18 +860,25 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
                     SUNK: ("ks", 10),
                 }[cell]
                 ax.plot(c, r, marker, markersize=size)
+
     plt.colorbar(hm, label="Value")
     plt.title(f"{title} -- ships remaining: {get_remaining_ship_count(state)}")
     plt.xlabel("Column")
     plt.ylabel("Row")
-    plt.xticks(
-        range(state.grid_size),
-        [chr(ord("A") + i) for i in range(state.grid_size)],
-    )
-    plt.yticks(
-        range(state.grid_size), [str(i + 1) for i in range(state.grid_size)]
-    )
-    plt.grid(True, alpha=0.3)
+    
+
+    ax.set_xticks(range(state.grid_size))
+    ax.set_xticklabels([chr(ord("A") + i) for i in range(state.grid_size)])
+    ax.set_yticks(range(state.grid_size))
+    ax.set_yticklabels([str(i + 1) for i in range(state.grid_size)])
+    ax.invert_yaxis()
+    
+    # grid lines align with cells
+    ax.set_xticks([x - 1 for x in range(1, state.grid_size)], minor=True)
+    ax.set_yticks([y - 1 for y in range(1, state.grid_size)], minor=True)
+    ax.grid(which='minor', color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
+    ax.tick_params(which='minor', bottom=False, left=False)  # hide minor ticks
+
     plt.tight_layout()
     plt.show()
 
