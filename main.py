@@ -29,19 +29,19 @@ DEFAULT_SHIPS: Dict[int, int] = {4: 1, 3: 2, 2: 3, 1: 4}
 
 
 def create_empty_grid(size: int) -> np.ndarray:
-    """Create an empty game grid of the specified size"""
+    """Create an empty game grid of the specified size."""
     return np.zeros((size, size), dtype=int)
 
 
 def is_valid_position(pos: Position, grid_size: int) -> bool:
-    """Check if the given position is within grid bounds"""
+    """Check if the given position is within grid bounds."""
     return 0 <= pos.row < grid_size and 0 <= pos.col < grid_size
 
 
 def create_initial_state(
     grid_size: int = DEFAULT_GRID_SIZE, ships: Optional[Dict[int, int]] = None
 ) -> GameState:
-    """Initialize a new GameState with empty grid and default ships"""
+    """Initialize a new GameState with empty grid and default ships."""
     ships = ships or DEFAULT_SHIPS.copy()
     return GameState(
         grid=create_empty_grid(grid_size), ships=ships, grid_size=grid_size
@@ -49,14 +49,14 @@ def create_initial_state(
 
 
 def create_initial_history(initial_state: GameState) -> GameHistory:
-    """Create an initial history object with a single starting state"""
+    """Create an initial history object with a single starting state."""
     return GameHistory(states=[initial_state], actions=[], current_index=0)
 
 
 def add_state_to_history(
     history: GameHistory, new_state: GameState, action: GameAction
 ) -> GameHistory:
-    """Append a new state and action to the game history timeline"""
+    """Append a new state and action to the game history timeline."""
     states = history.states[: history.current_index + 1]
     actions = history.actions[: history.current_index + 1]  # keep them in sync
     return GameHistory(states + [new_state], actions + [action], len(states))
@@ -68,14 +68,14 @@ def can_undo(history: GameHistory) -> bool:
 
 
 def can_redo(history: GameHistory) -> bool:
-    """Checks if you can redo"""
+    """Checks if you can redo."""
     return history.current_index < len(history.states) - 1
 
 
 def undo_state(
     history: GameHistory,
 ) -> Tuple[GameHistory, Optional[GameState]]:
-    """Revert to the previous game state if undo is possible"""
+    """Revert to the previous game state if undo is possible."""
     if not can_undo(history):
         return history, None
     new_index = history.current_index - 1
@@ -409,17 +409,22 @@ def build_coverage_maps(state: GameState) -> Dict[int, np.ndarray]:
 
 # this should fix it (I think)
 def apply_parity_strategy(grid, state, boost=1.2, near_hits_boost=1.05):
-    """Apply parity-based weighting to the probability grid for better 
-    exploration coverage."""
+    """Apply parity-based weighting only when appropriate."""
+    # If 1x1 ships exist and no hits are found, parity makes no sense
+    if state.ships.get(1, 0) > 0 and not np.any(state.grid == HIT):
+        return grid  # Preserve uniformity — skip parity
+
     result = grid.copy()
     has_hits = np.any(state.grid == HIT)
     parity = get_optimal_parity_for_ships(state.ships)
+
     for r in range(state.grid_size):
         for c in range(state.grid_size):
             if state.grid[r, c] != UNKNOWN:
                 continue
             if (r + c) % 2 == parity:
                 result[r, c] *= boost if not has_hits else near_hits_boost
+
     return result
 
 
@@ -765,7 +770,7 @@ def get_remaining_ship_count(state: GameState) -> int:
 def print_grid(
     state: GameState, show_moves: bool = False, move_cnt: int = 0
 ) -> None:
-    """Prints the current game grid with symbols and move count"""
+    """Prints the current game grid with symbols and move count."""
     symbols = {
         UNKNOWN: (".", Style.RESET_ALL),
         MISS: ("M", Fore.BLUE),
@@ -788,7 +793,7 @@ def print_grid(
         print(row_label + row_cells)
         print(separator)
 
-    # Now print the column letters at the bottom only
+    # Print the column letters at the bottom only. Think of a chess board.
     header = "    " + " ".join(
         f"{chr(ord('A') + c):^3}" for c in range(grid_size)
     )
@@ -825,12 +830,12 @@ def print_history_status(history: GameHistory) -> None:
 
 
 def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
-    """Display a matplotlib heatmap over the game grid"""
+    """Display a matplotlib heatmap over the game grid."""
     max_val = np.max(data)
     if max_val == 0:
         print("no data to plot")
         return
-    fig, ax = plt.subplots(figsize=(10, 8))
+    _fig, ax = plt.subplots(figsize=(10, 8))
     hm = ax.imshow(
         data, cmap="YlOrRd", interpolation="nearest", vmin=0, vmax=max_val
     )
@@ -865,14 +870,11 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
     plt.title(f"{title} -- ships remaining: {get_remaining_ship_count(state)}")
     plt.xlabel("Column")
     plt.ylabel("Row")
-    
-
     ax.set_xticks(range(state.grid_size))
     ax.set_xticklabels([chr(ord("A") + i) for i in range(state.grid_size)])
     ax.set_yticks(range(state.grid_size))
     ax.set_yticklabels([str(i + 1) for i in range(state.grid_size)])
     ax.invert_yaxis()
-    
     # grid lines align with cells
     ax.set_xticks([x - 1 for x in range(1, state.grid_size)], minor=True)
     ax.set_yticks([y - 1 for y in range(1, state.grid_size)], minor=True)
@@ -885,7 +887,7 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
 
 def print_welcome():
     """Print the game banner and list of available commands."""
-    print("BATTLESHIT")
+    print("NavCalc")
     print("UNKNOWN: '.', MISS: 'm', HIT: 'X', SUNK: '-'\n")
     print(
         "Cmds:\n"
@@ -905,19 +907,19 @@ def print_welcome():
 
 
 def handle_quit(_hist, _parts):
-    """handles quitting"""
+    """Handles quitting."""
     print("ok cya")
     sys.exit(0)
 
 
 def handle_help(hist, _parts):
-    """shows man"""
+    """Prints `print_welcome` again."""
     print_welcome()
     return hist
 
 
 def handle_undo(hist, _parts):
-    """undo last move if possible"""
+    """Undo last move if possible."""
     if can_undo(hist):
         hist, _ = undo_state(hist)
         print_grid(get_current_state(hist), True, hist.current_index)
@@ -928,7 +930,7 @@ def handle_undo(hist, _parts):
 
 
 def handle_redo(hist, _parts):
-    """redo last move if possible"""
+    """Redo last move if possible."""
     if can_redo(hist):
         hist, _ = redo_state(hist)
         print_grid(get_current_state(hist), True, hist.current_index)
@@ -939,8 +941,8 @@ def handle_redo(hist, _parts):
 
 
 def handle_hist(hist, _parts):
-    """display move history. potential addition to this would
-    be different markers so people can see them pretty clearly"""
+    """Display move history. Potential addition to this would
+    be different markers so people can see them pretty clearly."""
     print("\nMove History:")
     print("  0: Initial state")
     for i, act in enumerate(hist.actions, 1):
@@ -950,7 +952,8 @@ def handle_hist(hist, _parts):
 
 
 def handle_validate(hist, _parts):
-    """validates the current game state (adjacency, alignment, weird shapes, etc)"""
+    """Validates the current game state (adjacency, alignment, weird shapes,
+    etc)."""
     errs = validate_game_state(get_current_state(hist))
     if errs:
         print("\n".join(["Errors:"] + [f"- {e}" for e in errs]))
@@ -960,20 +963,20 @@ def handle_validate(hist, _parts):
 
 
 def handle_show(hist, _parts):
-    """prints the current game grid"""
+    """Prints the current game grid."""
     print_grid(get_current_state(hist), True, hist.current_index)
     print_history_status(hist)
     return hist
 
 
 def handle_reset(_hist, _parts):
-    """handles resetting the game to its initial state"""
+    """Handles resetting the game to its initial state."""
     print("Game reset")
     return create_initial_history(create_initial_state())
 
 
 def handle_probability(hist, _parts):
-    """handles displaying the probability heatmap"""
+    """Handles displaying the probability heatmap."""
     state = get_current_state(hist)
     pg = compute_integrated_probability_grid(state)
     plot_heatmap(state, pg, "Integrated Ship Probability")
@@ -981,7 +984,7 @@ def handle_probability(hist, _parts):
 
 
 def handle_information(hist, _parts):
-    """handles displaying the info gain heatmap"""
+    """Handles displaying the info gain heatmap."""
     state = get_current_state(hist)
     ig = compute_information_gain(state)
     plot_heatmap(state, ig, "Information Gain (Entropy)")
@@ -989,7 +992,7 @@ def handle_information(hist, _parts):
 
 
 def handle_ai(hist, _parts):
-    """suggests the next best move"""
+    """Suggests the next best move."""
     state = get_current_state(hist)
     move = get_move_with_uncertainty_consideration(state)
     if move is None:
@@ -1008,9 +1011,9 @@ def handle_ai(hist, _parts):
 
 
 def handle_shot_command(hist, parts):
-    """handles user input for recording shots"""
+    """Handles user input for recording shots."""
     if len(parts) < 2:
-        print("usage: [pos] [hit/miss/sunk]")
+        print(print_welcome())
         return hist
     pos_tok, res = parts[0], parts[1]
     if res not in ("hit", "miss", "sunk"):
@@ -1053,7 +1056,7 @@ COMMANDS = {
 
 
 def main():
-    """main loop of the cli"""
+    """Main loop of the CLI."""
     hist = create_initial_history(create_initial_state())
     print_welcome()
 

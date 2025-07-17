@@ -1,27 +1,31 @@
-# battleshit -- overengineered battleship calculator
+# NavCalc -- Calculator for Sea Battle (GamePigeon) on iOS 
+Probabalistic battleship calculator for the GamePigeon game Sea Battle (a
+battleship clone). Uses some form of information gain and entropy to give 
+you the best move.
 
-based on GamePigeon iMessage rules. uses Bayesian inferencing and
-some information gain and entropy to give you the best move and kick ass.
-(document explaining the math concepts behind this will be released soon...)
-
-## requirements
+## Requirements
 
 - Python 3.8+
 
-install dependencies via pip
+Install dependencies via pip:
 
 ```sh
 pip install -r requirements.txt
-````
+```
 
-## usage
+## Usage
 
-Run Battleboi:
+Run NavCalc:
 
 ```sh
 python main.py
 ```
 
-`man` is there to tell you how to use it
+## Limitations
+This is a calculator that does not account for human behaviors. Consider this
+when playing with a friend or partner--it will not account for any potential habits of
+theirs.
 
-shoutout [Patrick O'Neill](https://github.com/Carbocarde/battleship.git) and Lana for ts inspiriation or smth
+## Credits
+I thank [Patrick O'Neill](https://github.com/Carbocarde/battleship.git) and Lana for 
+the inspiriation <3. 
