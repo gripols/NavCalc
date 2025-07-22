@@ -233,7 +233,7 @@ def _precomputed_placements_and_adjacents(
 def generate_all_ship_placements(
     state: GameState, ship_length: int
 ) -> Iterator[List[Position]]:
-    """Yield all legal placements for a given ship length under current 
+    """Yield all legal placements for a given ship length under current
     grid constraints."""
     grid = state.grid
     size = state.grid_size
@@ -333,7 +333,7 @@ def compute_probability_grid_heuristic(state: GameState) -> np.ndarray:
 
 
 def compute_information_gain(state: GameState) -> np.ndarray:
-    """Compute an entropy-based heatmap representing information 
+    """Compute an entropy-based heatmap representing information
     gain of each shot."""
     base_probs = compute_probability_grid_heuristic(state)
     info_gain = np.zeros_like(base_probs)
@@ -393,7 +393,7 @@ def get_optimal_parity_for_ships(ships: Dict[int, int]) -> int:
 
 
 def build_coverage_maps(state: GameState) -> Dict[int, np.ndarray]:
-    """Build a coverage map for each ship length showing placement 
+    """Build a coverage map for each ship length showing placement
     frequency per cell."""
     cov = {}
     for ln, cnt in state.ships.items():
@@ -523,7 +523,7 @@ def get_segment_extensions(
 def can_continue_in_direction(
     segment: List[Position], ext: Position, target_len: int, state: GameState
 ) -> bool:
-    """Check if a segment could be extended to reach a full ship length 
+    """Check if a segment could be extended to reach a full ship length
     in a given direction."""
     seg_sorted = sorted(segment)
     if len(segment) < 2:
@@ -547,7 +547,7 @@ def can_continue_in_direction(
 def calculate_segment_completion_probability(
     segment: List[Position], state: GameState
 ) -> Dict[Position, float]:
-    """Estimate the likelihood that extending a segment at each candidate will 
+    """Estimate the likelihood that extending a segment at each candidate will
     complete a ship."""
     exts = get_segment_extensions(segment, state)
     if not exts:
@@ -574,7 +574,7 @@ def calculate_segment_completion_probability(
 def get_prioritized_extensions(
     segment: List[Position], state: GameState
 ) -> List[Tuple[Position, float]]:
-    """Return segment extension positions sorted by probability of completing 
+    """Return segment extension positions sorted by probability of completing
     a ship."""
     return sorted(
         calculate_segment_completion_probability(segment, state).items(),
@@ -609,7 +609,7 @@ def compute_integrated_probability_grid(state: GameState) -> np.ndarray:
 def get_move_with_uncertainty_consideration(
     state: GameState,
 ) -> Optional[Position]:
-    """Choose the next best move by combining probability and information gain 
+    """Choose the next best move by combining probability and information gain
     heuristics."""
     hit_segments = find_all_hit_segments(state)
     for seg in hit_segments:
@@ -627,7 +627,10 @@ def get_move_with_uncertainty_consideration(
 
     for r in range(state.grid_size):
         for c in range(state.grid_size):
-            if state.grid[r, c] == UNKNOWN and combined_score[r, c] > max_score:
+            if (
+                state.grid[r, c] == UNKNOWN
+                and combined_score[r, c] > max_score
+            ):
                 max_score = combined_score[r, c]
                 best_position = Position(r, c)
 
@@ -637,7 +640,7 @@ def get_move_with_uncertainty_consideration(
 def place_ship_on_grid(
     grid: np.ndarray, positions: List[Position]
 ) -> np.ndarray:
-    """Mark all given positions on the grid as HIT and return the updated grid 
+    """Mark all given positions on the grid as HIT and return the updated grid
     copy."""
     g = grid.copy()
     for p in positions:
@@ -648,7 +651,7 @@ def place_ship_on_grid(
 def mark_adjacent_as_blocked(
     grid: np.ndarray, positions: List[Position], grid_size: int
 ) -> np.ndarray:
-    """Mark all adjacent positions as MISS around a list of positions, 
+    """Mark all adjacent positions as MISS around a list of positions,
     returning a new grid."""
     g = grid.copy()
     for q in get_adjacent_positions(positions, grid_size):
@@ -658,7 +661,7 @@ def mark_adjacent_as_blocked(
 
 
 def update_cell(state: GameState, pos: Position, result: str) -> GameState:
-    """Update the grid state with a new result (hit/miss/sunk) and return 
+    """Update the grid state with a new result (hit/miss/sunk) and return
     updated GameState."""
     g = state.grid.copy()
     if result == "hit":
@@ -675,7 +678,7 @@ def update_cell(state: GameState, pos: Position, result: str) -> GameState:
 def handle_sunk_ship(
     grid: np.ndarray, sunk_pos: Position, ships: Dict[int, int], grid_size: int
 ) -> Tuple[np.ndarray, Dict[int, int]]:
-    """Handle sunk ship logic: mark cells, block neighbors, and decrement 
+    """Handle sunk ship logic: mark cells, block neighbors, and decrement
     ship count."""
     ship_cells = find_connected_positions(
         GameState(grid, ships, grid_size), sunk_pos, {HIT, SUNK}
@@ -692,7 +695,7 @@ def handle_sunk_ship(
 
 
 def is_straight_line(positions: List[Position]) -> bool:
-    """Check if a list of positions form a valid straight line (horizontal 
+    """Check if a list of positions form a valid straight line (horizontal
     or vertical)."""
     if len(positions) <= 1:
         return True
@@ -739,7 +742,9 @@ def validate_game_state(state: GameState) -> List[str]:
 
 def format_positions(pos: List[Position]) -> str:
     """Format a list of Position objects as human-readable strings like 'B5'."""
-    return ", ".join(f"{chr(ord('A') + p.col)}{p.row + 1}" for p in sorted(pos))
+    return ", ".join(
+        f"{chr(ord('A') + p.col)}{p.row + 1}" for p in sorted(pos)
+    )
 
 
 def parse_position(s: str) -> Position:
@@ -771,53 +776,63 @@ def print_grid(
     state: GameState, show_moves: bool = False, move_cnt: int = 0
 ) -> None:
     """Prints the current game grid with symbols and move count."""
-    symbols = {
-        UNKNOWN: (".", Style.RESET_ALL),
-        MISS: ("M", Fore.BLUE),
-        HIT: ("X", Fore.RED),
-        SUNK: ("S", Fore.MAGENTA),
-    }
-    grid_size = state.grid_size
+    print("   +" + "---+" * state.grid_size)
 
-    separator = "   +" + "---+" * grid_size
+    for r in reversed(range(state.grid_size)):
+        print(
+            f"{r + 1:2} |"
+            + "".join(
+                f" {symbols(state.grid[r, c])} |"
+                for c in range(state.grid_size)
+            )
+        )
+        print("   +" + "---+" * state.grid_size)
 
-    print(separator)
-    # Print rows bottom to top to match matplotlib invert_yaxis
-    for r in reversed(range(grid_size)):
-        row_label = f"{r + 1:2} |"
-        row_cells = ""
-        for c in range(grid_size):
-            cell_value = state.grid[r, c]
-            symbol, color = symbols.get(cell_value, ("?", Style.RESET_ALL))
-            row_cells += f" {color}{symbol}{Style.RESET_ALL} |"
-        print(row_label + row_cells)
-        print(separator)
-
-    # Print the column letters at the bottom only. Think of a chess board.
-    header = "    " + " ".join(
-        f"{chr(ord('A') + c):^3}" for c in range(grid_size)
+    print(
+        "    "
+        + " ".join(f"{chr(ord('A') + c):^3}" for c in range(state.grid_size))
     )
-    print(header)
 
-    # Legend and remaining info as before
     print("\nLegend:")
-    print(f"  {Style.RESET_ALL}. = Unknown")
-    print(f"  {Fore.BLUE}M = Miss{Style.RESET_ALL}")
-    print(f"  {Fore.RED}X = Hit{Style.RESET_ALL}")
-    print(f"  {Fore.MAGENTA}S = Sunk{Style.RESET_ALL}")
+    for char, label, color in [
+        (".", "Unknown", Style.RESET_ALL),
+        ("M", "Miss", Fore.BLUE),
+        ("X", "Hit", Fore.RED),
+        ("S", "Sunk", Fore.MAGENTA),
+    ]:
+        print(f"  {color}{char} = {label}{Style.RESET_ALL}")
 
-    remaining = [
+    remaining = ", ".join(
         f"{ln}x{cnt}"
         for ln, cnt in sorted(state.ships.items(), reverse=True)
         if cnt > 0
-    ]
-    info = f"Remaining ships: {', '.join(remaining) if remaining else 'All ships kaput!'}"
+    )
+    info = f"Remaining ships: {remaining or 'All ships kaput!'}"
     if show_moves:
         info += f" | Moves: {move_cnt}"
     print("\n" + info)
 
     if is_game_complete(state):
         print("All ships are kaput!")
+
+
+def symbols(cell_value):
+    """Return the display symbol and color for a cell value."""
+    return (
+        {
+            UNKNOWN: (".", Style.RESET_ALL),
+            MISS: ("M", Fore.BLUE),
+            HIT: ("X", Fore.RED),
+            SUNK: ("S", Fore.MAGENTA),
+        }.get(cell_value, ("?", Style.RESET_ALL))[1]
+        + {
+            UNKNOWN: (".", Style.RESET_ALL),
+            MISS: ("M", Fore.BLUE),
+            HIT: ("X", Fore.RED),
+            SUNK: ("S", Fore.MAGENTA),
+        }.get(cell_value, ("?", Style.RESET_ALL))[0]
+        + Style.RESET_ALL
+    )
 
 
 def print_history_status(history: GameHistory) -> None:
@@ -878,8 +893,10 @@ def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
     # grid lines align with cells
     ax.set_xticks([x - 1 for x in range(1, state.grid_size)], minor=True)
     ax.set_yticks([y - 1 for y in range(1, state.grid_size)], minor=True)
-    ax.grid(which='minor', color='gray', linestyle='-', linewidth=0.5, alpha=0.3)
-    ax.tick_params(which='minor', bottom=False, left=False)  # hide minor ticks
+    ax.grid(
+        which="minor", color="gray", linestyle="-", linewidth=0.5, alpha=0.3
+    )
+    ax.tick_params(which="minor", bottom=False, left=False)  # hide minor ticks
 
     plt.tight_layout()
     plt.show()
