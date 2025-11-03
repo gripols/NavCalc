@@ -27,5 +27,5 @@ when playing with a friend or partner--it will not account for any potential hab
 theirs.
 
 ## Credits
-I thank [Patrick O'Neill](https://github.com/Carbocarde/battleship.git) and Lana for 
+I thank [Patrick O'Neill](https://github.com/Carbocarde/battleship.git) and Madeline for 
 the inspiriation <3. 
