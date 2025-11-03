@@ -1,5 +1,7 @@
 colorama
 matplotlib
+seaborn
 numpy
 typing
 PyQt6
+pytest

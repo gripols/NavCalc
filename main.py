@@ -1,6 +1,8 @@
 """One big beautiful monolithic file."""
 
 import sys
+import os
+import pickle
 
 from collections import namedtuple
 from functools import lru_cache
@@ -8,6 +10,7 @@ from typing import Dict, Iterator, List, Optional, Set, Tuple
 from colorama import Fore, Style
 
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 
 
@@ -42,7 +45,8 @@ def create_initial_state(
     grid_size: int = DEFAULT_GRID_SIZE, ships: Optional[Dict[int, int]] = None
 ) -> GameState:
     """Initialize a new GameState with empty grid and default ships."""
-    ships = ships or DEFAULT_SHIPS.copy()
+    if ships is None:
+        ships = DEFAULT_SHIPS.copy()
     return GameState(
         grid=create_empty_grid(grid_size), ships=ships, grid_size=grid_size
     )
@@ -58,7 +62,7 @@ def add_state_to_history(
 ) -> GameHistory:
     """Append a new state and action to the game history timeline."""
     states = history.states[: history.current_index + 1]
-    actions = history.actions[: history.current_index + 1]  # keep them in sync
+    actions = history.actions[: history.current_index]  # keep them in sync
     return GameHistory(states + [new_state], actions + [action], len(states))
 
 
@@ -230,6 +234,50 @@ def _precomputed_placements_and_adjacents(
     return placements_with_adj
 
 
+PLACEMENT_CACHE_FILE = ".navcalc_cache.pkl"
+
+def load_or_precompute_placements(
+    grid_size: int, ships_config: Dict[int, int]
+) -> Dict[int, List[Tuple[Tuple[Position, ...], Set[Position]]]]:
+    """
+    Loads precomputed ship placements from a cache file if it exists and
+    matches the current config. Otherwise, calculates them and saves to cache.
+    """
+    current_config = (grid_size, tuple(sorted(ships_config.items())))
+
+    if os.path.exists(PLACEMENT_CACHE_FILE):
+        try:
+            with open(PLACEMENT_CACHE_FILE, "rb") as f:
+                cache_data = pickle.load(f)
+                if cache_data.get("config") == current_config:
+                    return cache_data["placements"]
+        except (IOError, pickle.PickleError, EOFError):
+            # Cache is corrupt or unreadable, will recalculate.
+            pass
+
+    print("First-time setup: Pre-calculating ship placements...")
+    all_placements = {}
+    for ship_length in ships_config.keys():
+        placements = _precomputed_placements_and_adjacents(
+            grid_size, ship_length
+        )
+        all_placements[ship_length] = placements
+
+    cache_to_save = {"config": current_config, "placements": all_placements}
+    try:
+        with open(PLACEMENT_CACHE_FILE, "wb") as f:
+            pickle.dump(cache_to_save, f)
+    except IOError as e:
+        print(f"Warning: Could not write cache file: {e}")
+
+    return all_placements
+
+
+PRECOMPUTED_PLACEMENTS = load_or_precompute_placements(
+    DEFAULT_GRID_SIZE, DEFAULT_SHIPS
+)
+
+
 def generate_all_ship_placements(
     state: GameState, ship_length: int
 ) -> Iterator[List[Position]]:
@@ -252,9 +300,8 @@ def generate_all_ship_placements(
         if grid[r, c] in (HIT, SUNK)
     }
 
-    for placement, adjacents in _precomputed_placements_and_adjacents(
-        size, ship_length
-    ):
+    for placement, adjacents in PRECOMPUTED_PLACEMENTS[ship_length]:
+
         # overlapping forbidden cells
         if any(p in forbidden for p in placement):
             continue
@@ -818,21 +865,14 @@ def print_grid(
 
 def symbols(cell_value):
     """Return the display symbol and color for a cell value."""
-    return (
-        {
-            UNKNOWN: (".", Style.RESET_ALL),
-            MISS: ("M", Fore.BLUE),
-            HIT: ("X", Fore.RED),
-            SUNK: ("S", Fore.MAGENTA),
-        }.get(cell_value, ("?", Style.RESET_ALL))[1]
-        + {
-            UNKNOWN: (".", Style.RESET_ALL),
-            MISS: ("M", Fore.BLUE),
-            HIT: ("X", Fore.RED),
-            SUNK: ("S", Fore.MAGENTA),
-        }.get(cell_value, ("?", Style.RESET_ALL))[0]
-        + Style.RESET_ALL
-    )
+    symbol_map = {
+        UNKNOWN: (".", Style.RESET_ALL),
+        MISS: ("M", Fore.BLUE),
+        HIT: ("X", Fore.RED),
+        SUNK: ("S", Fore.MAGENTA),
+    }
+    symbol, color = symbol_map.get(cell_value, ("?", Style.RESET_ALL))
+    return f"{color}{symbol}{Style.RESET_ALL}"
 
 
 def print_history_status(history: GameHistory) -> None:
@@ -845,58 +885,65 @@ def print_history_status(history: GameHistory) -> None:
 
 
 def plot_heatmap(state: GameState, data: np.ndarray, title: str) -> None:
-    """Display a matplotlib heatmap over the game grid."""
+    """Display a seaborn heatmap over the game grid."""
     max_val = np.max(data)
     if max_val == 0:
         print("no data to plot")
         return
-    _fig, ax = plt.subplots(figsize=(10, 8))
-    hm = ax.imshow(
-        data, cmap="YlOrRd", interpolation="nearest", vmin=0, vmax=max_val
+
+    # hiding values < 0.01
+    annot_data = data.copy()
+    annot_data[annot_data < 0.01] = np.nan  # skips NaN annotations
+
+    _fig, ax = plt.subplots(figsize=(12, 10))
+
+    sns.heatmap(
+        data,
+        ax=ax,
+        cmap="coolwarm",
+        annot=annot_data,
+        fmt=".2f",
+        linewidths=0.5,
+        cbar_kws={"label": "Probability"},
+        vmin=0,
+        vmax=max_val if max_val > 0 else 1,
     )
-    # plot values inside cells
-    for r in range(state.grid_size):
-        for c in range(state.grid_size):
-            v = data[r, c]
-            if v > 0.01:
-                ax.text(
-                    c,
-                    r,
-                    f"{v:.2f}",
-                    ha="center",
-                    va="center",
-                    color="white" if v > max_val * 0.5 else "black",
-                    fontsize=8,
-                    weight="bold",
-                )
-    # plot markers for MISS, HIT, SUNK
+
+    # Plot markers for MISS, HIT, SUNK on top
     for r in range(state.grid_size):
         for c in range(state.grid_size):
             cell = state.grid[r, c]
             if cell in (MISS, HIT, SUNK):
-                marker, size = {
-                    MISS: ("bo", 8),
-                    HIT: ("r*", 15),
-                    SUNK: ("ks", 10),
+                # Use prettier, centered markers
+                marker, size, color = {
+                    MISS: ("o", 10, "blue"),
+                    HIT: ("X", 15, "red"),
+                    SUNK: ("s", 12, "black"),
                 }[cell]
-                ax.plot(c, r, marker, markersize=size)
+                ax.plot(
+                    c + 0.5,  # Center cell marker (x-axis)
+                    r + 0.5,  # Center cell marker (y-axis)
+                    marker,
+                    markersize=size,
+                    color=color,
+                    markeredgewidth=2,  # Make markers stand out
+                )
 
-    plt.colorbar(hm, label="Value")
-    plt.title(f"{title} -- ships remaining: {get_remaining_ship_count(state)}")
+    # labels and ticks
+    plt.title(
+        f"{title} -- ships remaining: {get_remaining_ship_count(state)}",
+        fontsize=16,
+    )
     plt.xlabel("Column")
     plt.ylabel("Row")
-    ax.set_xticks(range(state.grid_size))
+
+    # ticks to the center of the cells for Seaborn
+    ax.set_xticks(np.arange(state.grid_size) + 0.5)
     ax.set_xticklabels([chr(ord("A") + i) for i in range(state.grid_size)])
-    ax.set_yticks(range(state.grid_size))
+    ax.set_yticks(np.arange(state.grid_size) + 0.5)
     ax.set_yticklabels([str(i + 1) for i in range(state.grid_size)])
-    ax.invert_yaxis()
-    # grid lines align with cells
-    ax.set_xticks([x - 1 for x in range(1, state.grid_size)], minor=True)
-    ax.set_yticks([y - 1 for y in range(1, state.grid_size)], minor=True)
-    ax.grid(
-        which="minor", color="gray", linestyle="-", linewidth=0.5, alpha=0.3
-    )
-    ax.tick_params(which="minor", bottom=False, left=False)  # hide minor ticks
+
+    ax.invert_yaxis()  # keep the y-axis inverted (1 at top)
 
     plt.tight_layout()
     plt.show()
@@ -1030,7 +1077,7 @@ def handle_ai(hist, _parts):
 def handle_shot_command(hist, parts):
     """Handles user input for recording shots."""
     if len(parts) < 2:
-        print(print_welcome())
+        print_welcome()
         return hist
     pos_tok, res = parts[0], parts[1]
     if res not in ("hit", "miss", "sunk"):
